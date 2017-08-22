@@ -9,8 +9,10 @@ import aiohttp
 
 import psycopg2
 
-from elasticsearch import exceptions as es_exceptions
-from elasticdatastore import ElasticDatastore
+#from elasticsearch import exceptions as es_exceptions
+#from elasticdatastore import ElasticDatastore
+
+from postgresdatastore import PostgresDatastore
 
 logging.basicConfig(filename='error_blocks.log', level=logging.ERROR)
 
@@ -112,12 +114,15 @@ if __name__ == "__main__":
     # Database default url
     DB_HOST = "localhost"
     DB_PORT = "5432"
-    DB_USER = ""
-    DB_PASS = ""
-    DB_NAME = ""
+    DB_USER = "postgres"
+    DB_PASS = "postgres"
+    DB_NAME = "postgres"
 
-    # Ethereum RPC endpoint
+    # Ethereum (geth) RPC endpoint
+    # initialized with: `geth --rpc`
+    # for more info see: https://github.com/ethereum/wiki/wiki/JSON-RPC
     ETH_URL = "http://localhost:8545"
+
     # Size of multiprocessing Pool processing the chunks
     POOL_SIZE = mp.cpu_count() + 2
 
@@ -130,38 +135,39 @@ if __name__ == "__main__":
                         help='What block to finish indexing. If nothing is provided, the latest one will be used.')
     parser.add_argument('-f', '--file', default=None,
                         help='Use an input file, each block number on a new line.')
+
     parser.add_argument('-m', '--esmaxsize', default=ES_MAXSIZE,
                         help='The elasticsearch max chunk size.')
 
+    parser.add_argument('-r', '--ethrpcurl', default=ETH_URL,
+                        help='The Ethereum RPC node url and port.')
+
     # Adds for postgres
 
-    parser.add_argument('-u', '--dbuser', default=ETH_URL,
+    parser.add_argument('-u', '--dbuser', default=DB_USER,
                         help='The database user.')
 
-    parser.add_argument('-p', '--dbpass', default=ETH_URL,
+    parser.add_argument('-p', '--dbpass', default=DB_PASS,
                         help='The database password.')
 
-    parser.add_argument('-d', '--dbname', default=ETH_URL,
+    parser.add_argument('-d', '--dbname', default=DB_NAME,
                         help='The database name.')
 
-    parser.add_argument('-o', '--dbport', default=ETH_URL,
+    parser.add_argument('-o', '--dbport', default=DB_PORT,
                         help='The database port.')
 
-    parser.add_argument('-h', '--dbhost', default=ES_URL,
+    parser.add_argument('-l', '--dbhost', default=DB_HOST,
                         help='The database host')
-
 
     args = parser.parse_args()
 
     # Setup all datastores
-    ElasticDatastore.config(args.esurl, args.esmaxsize)
+    PostgresDatastore.config(args.dbuser, args.dbpass, args.dbname, args.dbport, args.dbhost)
 
     # Determine start block number if needed
     if not args.start_block:
         try:
-            args.start_block = ElasticDatastore.request(args.esurl, index=ElasticDatastore.B_INDEX_NAME,
-                                                        size=1, sort="number:desc")["hits"]["hits"][0]["_source"]["number"]
-
+            args.start_block = 0 #ElasticDatastore.request(args.esurl, index=ElasticDatastore.B_INDEX_NAME, size=1, sort="number:desc")["hits"]["hits"][0]["_source"]["number"]
         except (es_exceptions.NotFoundError, es_exceptions.RequestError):
             args.start_block = 0
         print("Start block automatically set to: {}".format(args.start_block))

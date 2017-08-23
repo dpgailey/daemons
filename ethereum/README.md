@@ -9,10 +9,12 @@ Useful links:
 
 Schema
 -
-Note: Practicially everything in the Ethereum blockchain is a HEX value
+Notes: 
 
-Blockchain block output: https://gist.github.com/dpgailey/bbbc388128d240f573328c9df1e72630
-Ethereum Yellow paper detailing each piece: : https://ethereum.github.io/yellowpaper/paper.pdf
+1. Practicially everything in the Ethereum blockchain is a HEX value
+2. All fields have an \_int suffix for their integer representations where applicable
+3. Blockchain block output: https://gist.github.com/dpgailey/bbbc388128d240f573328c9df1e72630
+4. Ethereum Yellow paper detailing each piece: : https://ethereum.github.io/yellowpaper/paper.pdf
 
 # Blocks
 

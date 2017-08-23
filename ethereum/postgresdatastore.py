@@ -1,6 +1,10 @@
 import datetime
 import logging
+import psycopg2
+import sys
+
 from datastore import Datastore
+
 
 class PostgresDatastore(Datastore):
 
@@ -10,6 +14,7 @@ class PostgresDatastore(Datastore):
     def __init__(self):
         super().__init__()
         self.db_conn = psycopg2.connect(dbname=self.dbname, user=self.dbuser, password=self.dbpass)
+        self.db_cursor = self.db_conn.cursor()
 
     @classmethod
     def config(self, dbuser, dbpass, dbname, dbport, dbhost):
@@ -19,8 +24,10 @@ class PostgresDatastore(Datastore):
         self.dbport = dbport
         self.dbhost = dbhost
 
-
     def extract(self, rpc_block):
+        print(rpc_block)
+        sys.exit(0)
+
         block = rpc_block["result"]
 
         transactions = block["transactions"]
@@ -58,10 +65,11 @@ class PostgresDatastore(Datastore):
     def save(self):
         nb_blocks = sum(act["_type"] == "b" for act in self.actions)
         nb_txs = sum(act["_type"] == "tx" for act in self.actions)
+        print(self.actions)
 
         if self.actions:
             try:
-                helpers.bulk(self.elastic, self.actions)
+                helpers.bulk(self.d, self.actions)
                 return "{} blocks and {} transactions indexed".format(
                     nb_blocks, nb_txs
                 )

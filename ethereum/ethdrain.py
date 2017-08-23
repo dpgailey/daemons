@@ -7,7 +7,6 @@ import argparse
 import requests
 import aiohttp
 
-import psycopg2
 
 #from elasticsearch import exceptions as es_exceptions
 #from elasticdatastore import ElasticDatastore
@@ -62,7 +61,6 @@ class Ethdrain:
                                     headers={"content-type": "application/json"}) as response:
                 for data_store in self.data_stores:
                     data_store.extract(await response.json())
-
         except (aiohttp.ClientError, asyncio.TimeoutError) as exception:
             logging.error("block: " + str(block_nb))
             print("Issue with block {}:\n{}\n".format(block_nb, exception))
@@ -128,6 +126,12 @@ if __name__ == "__main__":
 
     BLOCK_WAIT = 10
 
+
+    # SKVL
+    with open("skvl.txt", "r") as your_file:
+      lines = your_file.read()
+    print(lines)
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--start', dest='start_block', type=int,
                         help='What block to start indexing. If nothing is provided, the latest block indexed will be used.')
@@ -187,15 +191,12 @@ if __name__ == "__main__":
 
     CHUNKS_ARR = list(chunks(BLOCK_LIST))
 
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-    print("~~~~~~~~~~ Ethdrain ~~~~~~~~~~")
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     print("Processing {} blocks split into {} chunks on {} processes:".format(
         len(BLOCK_LIST), len(CHUNKS_ARR), POOL_SIZE
     ))
 
     Ethdrain.eth_url = args.ethrpcurl
-    Ethdrain.load_datastore_classes(ElasticDatastore)
+    Ethdrain.load_datastore_classes(PostgresDatastore)
 
     POOL = mp.Pool(POOL_SIZE)
     POOL.map(Ethdrain.launch, CHUNKS_ARR)

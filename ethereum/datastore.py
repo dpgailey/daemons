@@ -3,7 +3,7 @@ class Datastore:
     WEI_ETH_FACTOR = 1000000000000000000.0
 
     def __init__(self):
-        self.actions = list()
+        self.blocks = list()
 
     @classmethod
     def config(cls, es_url, es_maxsize):

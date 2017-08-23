@@ -8,8 +8,8 @@ from datastore import Datastore
 
 class PostgresDatastore(Datastore):
 
-    TX_INDEX_NAME = "ethereum-transaction"
-    B_INDEX_NAME = "ethereum-block"
+    TX_TABLE_NAME = "ethereum-transaction"
+    BLK_TABLE_NAME = "ethereum-block"
 
     def __init__(self):
         super().__init__()
@@ -25,49 +25,43 @@ class PostgresDatastore(Datastore):
         self.dbhost = dbhost
 
     def extract(self, rpc_block):
-        print(rpc_block)
-        sys.exit(0)
 
         block = rpc_block["result"]
 
         transactions = block["transactions"]
-        tx_hashes = list()
         tx_value_sum = 0
 
-        block_nb = int(block["number"], 0)
-        block_timestamp = datetime.datetime.fromtimestamp(int(block["timestamp"], 0))
+        block_number_int = int(block["number"], 0)
+
+        block_timestamp_int = datetime.datetime.fromtimestamp(int(block["timestamp"], 0))
 
         for tx in transactions:
-            tx["blockNumber"] = block_nb
-            tx["blockTimestamp"] = block_timestamp
+            tx["blockNumber_int"] = block_number_int
+            tx["blockTimestamp_int"] = block_timestamp_int
             # Convert wei into ether
-            tx["value"] = int(tx["value"], 0) / self.WEI_ETH_FACTOR
-            tx_value_sum += tx["value"]
-            self.actions.append(
-                {"_index": self.TX_INDEX_NAME, "_type": "tx", "_id": tx["hash"], "_source": tx}
-            )
-            tx_hashes.append(tx["hash"])
+            tx["value_eth"] = int(tx["value"], 0) / self.WEI_ETH_FACTOR
+            tx["value_int"] = int(tx["value"], 0)
+            tx["gasPrice_int"] = int(tx["gasPrice"], 0)
+            tx["gas_int"] = int(tx["gas"], 0)
+            tx_value_sum += int(tx["value"], 0)
 
-        block["transactions"] = tx_hashes
-        block["number"] = block_nb
-        block["timestamp"] = block_timestamp
-        block["gasLimit"] = int(block["gasLimit"], 0)
-        block["gasUsed"] = int(block["gasUsed"], 0)
-        block["size"] = int(block["size"], 0)
-        block["transactionCount"] = len(tx_hashes)
-        block["txValueSum"] = tx_value_sum
+        block["transactions"] = transactions
+        block["number_int"] = block_number_int
+        block["timestamp_int"] = block_timestamp_int
+        block["gasLimit_int"] = int(block["gasLimit"], 0)
+        block["gasUsed_int"] = int(block["gasUsed"], 0)
+        block["size_int"] = int(block["size"], 0)
+        block["transactionCount"] = len(transactions)
+        block["txValueSum_int"] = tx_value_sum # going to keep this in Wei
 
-        self.actions.append(
-            {"_index": self.B_INDEX_NAME, "_type": "b", "_id": block_nb, "_source": block}
-        )
+        self.blocks.append(block)
 
 
     def save(self):
-        nb_blocks = sum(act["_type"] == "b" for act in self.actions)
-        nb_txs = sum(act["_type"] == "tx" for act in self.actions)
-        print(self.actions)
+        print(self.blocks)
+        sys.exit(0)
 
-        if self.actions:
+        if self.blocks:
             try:
                 helpers.bulk(self.d, self.actions)
                 return "{} blocks and {} transactions indexed".format(
@@ -75,10 +69,9 @@ class PostgresDatastore(Datastore):
                 )
 
             except helpers.BulkIndexError as exception:
-                print("Issue with {} blocks:\n{}\n".format(nb_blocks, exception))
-                blocks = (act for act in self.actions if act["_type"] == "b")
+                print("Issue with {} blocks:\n{}\n".format(blocks, exception))
                 for block in blocks:
-                    logging.error("block: " + str(block["_id"]))
+                    logging.error("block: " + str(block["number"]))
 
 
     @staticmethod

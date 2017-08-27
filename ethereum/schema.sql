@@ -51,7 +51,7 @@ CREATE TABLE ethereum_blocks (
   gasUsed TEXT,
   gasUsed_int NUMERIC,
 
-  hash TEXT NOT NULL,
+  blockhash TEXT NOT NULL,
 
   logsBloom TEXT,
   miner TEXT,
@@ -102,7 +102,7 @@ CREATE TABLE ethereum_transactions (
   gasPrice TEXT NOT NULL,
   gasPrice_int NUMERIC,
 
-  hash TEXT NOT NULL,
+  txhash TEXT NOT NULL,
 
   "input" TEXT,
   input_str TEXT,

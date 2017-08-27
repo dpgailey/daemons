@@ -50,6 +50,8 @@ class PostgresDatastore(Datastore):
         tx["gas_int"] = int(tx["gas"], 0)
         tx["input_str"] = self.hex_to_ascii(tx["input"])
         tx["transactionIndex_int"] = int(tx["transactionIndex"], 0)
+        tx["txhash"] = tx["hash"]
+        tx.pop('hash', 0)
         tx_value_sum += int(tx["value"], 0)
 
       block["transactions"] = transactions
@@ -64,6 +66,8 @@ class PostgresDatastore(Datastore):
       block["transactionCount"] = len(transactions)
       block["txValueSum_int"] = tx_value_sum # going to keep this in Wei
       block["totalDifficulty_int"] = int(block["totalDifficulty"], 0)
+      block["blockhash"] = block["hash"]
+      block.pop('hash', 0)
 
       block["uncles"] = ''
 
@@ -84,8 +88,8 @@ class PostgresDatastore(Datastore):
             with self.db_conn.cursor() as dbcurs:
               # if block present skip
               try:
-                block_check_sql = 'select hash from ethereum_blocks where hash = %s'
-                dbcurs.execute(block_check_sql, (block['hash'],))
+                block_check_sql = 'select blockhash from ethereum_blocks where blockhash = %s'
+                dbcurs.execute(block_check_sql, (block['blockhash'],))
                 if dbcurs.fetchone() == None:
 
                   block_insert = 'insert into ethereum_blocks (%s) values %s'
@@ -108,8 +112,8 @@ class PostgresDatastore(Datastore):
               for tx in transactions:
                 # check to see if TX exists
                 try:
-                  tx_check_sql = 'select hash from ethereum_transactions where hash = %s and blockHash = %s;'
-                  dbcurs.execute(tx_check_sql, (tx['hash'], tx['blockHash'],))
+                  tx_check_sql = 'select txhash from ethereum_transactions where txhash = %s and blockHash = %s;'
+                  dbcurs.execute(tx_check_sql, (tx['txhash'], tx['blockHash'],))
 
                   if dbcurs.fetchone() == None:
                     tx_insert = 'insert into ethereum_transactions (%s) values %s'
@@ -121,7 +125,7 @@ class PostgresDatastore(Datastore):
 
                     tx_sql = self.db_cursor.mogrify(tx_insert, ([psycopg2.extensions.AsIs(tx_columns)] + [tx_values]))
                     dbcurs.execute(tx_sql)
-                    print("- Write tx %s" % tx['hash'])
+                    print("- Write tx %s" % tx['txhash'])
                 except Exception as exception:
                   print(tx_columns)
                   print(tx_values)

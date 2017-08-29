@@ -122,5 +122,9 @@ CREATE TABLE ethereum_transactions (
 );
 
 CREATE TABLE ethereum_parser_states (
-  last_block_number NUMERIC
+  id INT,
+  last_block_number NUMERIC,
+  total_blocks NUMERIC
 );
+
+INSERT INTO ethereum_parser_states (id, last_block_number, total_blocks) values (1, 0, 0);

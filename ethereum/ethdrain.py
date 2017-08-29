@@ -165,9 +165,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Setup all datastores
-    PostgresDatastore.config(args.dbuser, args.dbpass, args.dbname, args.dbport, args.dbhost)
-
     # Determine start block number if needed
     if not args.start_block:
         try:
@@ -182,6 +179,12 @@ if __name__ == "__main__":
                                                Ethdrain.make_request("latest", False))["result"]["number"], 0) - BLOCK_WAIT
         print("Last block automatically set to: {}".format(args.end_block))
 
+
+    # Setup all datastores
+    PostgresDatastore.config(args.dbuser, args.dbpass, args.dbname, args.dbport, args.dbhost, args.start_block, args.end_block)
+
+
+
     if args.file:
         with open(args.file) as f:
             CONTENT = f.readlines()
@@ -194,7 +197,6 @@ if __name__ == "__main__":
     print("Processing {} blocks split into {} chunks on {} processes:".format(
         len(BLOCK_LIST), len(CHUNKS_ARR), POOL_SIZE
     ))
-
     Ethdrain.eth_url = args.ethrpcurl
     Ethdrain.load_datastore_classes(PostgresDatastore)
 

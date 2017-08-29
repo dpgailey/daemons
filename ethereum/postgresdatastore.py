@@ -18,14 +18,28 @@ class PostgresDatastore(Datastore):
         super().__init__()
         self.db_conn = psycopg2.connect(dbname=self.dbname, user=self.dbuser, password=self.dbpass)
         self.db_cursor = self.db_conn.cursor()
+        #self.update_end_block()
+
+    def update_end_block(self):
+        sql = "update ethereum_parser_states set total_blocks = %s where id=1;"
+        try:
+          self.db_cursor.execute(sql, (self.end_block,))
+          print(self.db_cursor.query)
+          print(self.db_cursor)
+          print("Setting end block to: %s" % self.end_block)
+        except Exception as exception:
+          print(exception)
+
 
     @classmethod
-    def config(self, dbuser, dbpass, dbname, dbport, dbhost):
+    def config(self, dbuser, dbpass, dbname, dbport, dbhost, start_block, end_block):
         self.dbuser = dbuser
         self.dbpass = dbpass
         self.dbname = dbname
         self.dbport = dbport
         self.dbhost = dbhost
+        self.start_block = start_block
+        self.end_block = end_block
         print("Connecting to db using dbuser: %s, dbpass: %s, dbname: %s, dbport: %s, dbhost: %s" % (dbuser, dbpass, dbname, dbport, dbhost))
 
     def extract(self, rpc_block):
@@ -131,6 +145,15 @@ class PostgresDatastore(Datastore):
                   print(tx_values)
                   print(exception)
                   print("tx!!!!!")
+
+              old_sql = "select total_blocks from ethereum_parser_states where id=1"
+              dbcurs.execute(old_sql)
+              res = dbcurs.fetchone()
+              print(res[0])
+              if(block['number_int'] > res[0]):
+                update_sql = "update ethereum_parser_states set total_blocks = %s"
+                dbcurs.execute(update_sql, (block['number_int'],))
+                print("Updated total blocks: %s" % dbcurs.statusmessage)
 
               update_sql = "update ethereum_parser_states set last_block_number = %s where id = 1"
               dbcurs.execute(update_sql, (block['number_int'],))

@@ -128,4 +128,13 @@ CREATE TABLE ethereum_parser_states (
   highest_block_number NUMERIC
 );
 
-INSERT INTO ethereum_parser_states (id, last_block_number, total_blocks) values (1, 0, 0);
+INSERT INTO ethereum_parser_states (id, last_block_number, total_blocks, highest_block_number) values (1, 0, 0, 0);
+
+
+/*
+ INDEXES
+*/
+
+CREATE INDEX eth_tx_and_blk_hash ON ethereum_transactions (txhash, blockhash);
+CREATE INDEX eth_blk_hash ON ethereum_blocks (blockhash);
+

@@ -129,8 +129,8 @@ if __name__ == "__main__":
 
     # SKVL
     with open("skvl.txt", "r") as your_file:
-      lines = your_file.read()
-    print(lines)
+      skvl = your_file.read()
+    print(skvl)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--start', dest='start_block', type=int,
@@ -145,6 +145,9 @@ if __name__ == "__main__":
 
     parser.add_argument('-r', '--ethrpcurl', default=ETH_URL,
                         help='The Ethereum RPC node url and port.')
+
+    parser.add_argument('-c', '--continuous', default=None,
+                        help='Continue to run in foreground, waiting for new blocks.')
 
     # Adds for postgres
 
@@ -167,6 +170,7 @@ if __name__ == "__main__":
 
     # Determine start block number if needed
     if not args.start_block:
+        print("No start block found.")
         try:
             args.start_block = 0 #ElasticDatastore.request(args.esurl, index=ElasticDatastore.B_INDEX_NAME, size=1, sort="number:desc")["hits"]["hits"][0]["_source"]["number"]
         except (es_exceptions.NotFoundError, es_exceptions.RequestError):
@@ -183,22 +187,26 @@ if __name__ == "__main__":
     # Setup all datastores
     PostgresDatastore.config(args.dbuser, args.dbpass, args.dbname, args.dbport, args.dbhost, args.start_block, args.end_block)
 
+    if not args.continuous:
+      if args.file:
+          with open(args.file) as f:
+              CONTENT = f.readlines()
+              BLOCK_LIST = [int(x) for x in CONTENT if x.strip() and len(x.strip()) <= 8]
+      else:
+          BLOCK_LIST = list(range(int(args.start_block), int(args.end_block)))
 
+      CHUNKS_ARR = list(chunks(BLOCK_LIST))
 
-    if args.file:
-        with open(args.file) as f:
-            CONTENT = f.readlines()
-            BLOCK_LIST = [int(x) for x in CONTENT if x.strip() and len(x.strip()) <= 8]
+      print("Processing {} blocks split into {} chunks on {} processes:".format(
+          len(BLOCK_LIST), len(CHUNKS_ARR), POOL_SIZE
+      ))
+      Ethdrain.eth_url = args.ethrpcurl
+      Ethdrain.load_datastore_classes(PostgresDatastore)
+
+      POOL = mp.Pool(POOL_SIZE)
+      POOL.map(Ethdrain.launch, CHUNKS_ARR)
+
     else:
-        BLOCK_LIST = list(range(int(args.start_block), int(args.end_block)))
-
-    CHUNKS_ARR = list(chunks(BLOCK_LIST))
-
-    print("Processing {} blocks split into {} chunks on {} processes:".format(
-        len(BLOCK_LIST), len(CHUNKS_ARR), POOL_SIZE
-    ))
-    Ethdrain.eth_url = args.ethrpcurl
-    Ethdrain.load_datastore_classes(PostgresDatastore)
-
-    POOL = mp.Pool(POOL_SIZE)
-    POOL.map(Ethdrain.launch, CHUNKS_ARR)
+      while True:
+        next
+    

@@ -149,12 +149,16 @@ class PostgresDatastore(Datastore):
               old_sql = "select total_blocks from ethereum_parser_states where id=1"
               dbcurs.execute(old_sql)
               res = dbcurs.fetchone()
-              print(res[0])
+
+              print("Total blocks from ethereum_parser_states: %s " % res[0])
+              print("Current block: %s" % block['number_int'])
+
               if(block['number_int'] > res[0]):
                 update_sql = "update ethereum_parser_states set total_blocks = %s"
                 dbcurs.execute(update_sql, (block['number_int'],))
                 print("Updated total blocks: %s" % dbcurs.statusmessage)
-
+              else:
+                print("No update happening. Current block less than last block")
               update_sql = "update ethereum_parser_states set last_block_number = %s where id = 1"
               dbcurs.execute(update_sql, (block['number_int'],))
 

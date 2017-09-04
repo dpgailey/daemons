@@ -45,48 +45,49 @@ class PostgresDatastore(Datastore):
     def extract(self, rpc_block):
 
       block = rpc_block["result"]
+      if block:
+        transactions = block["transactions"]
+        tx_value_sum = 0
 
-      transactions = block["transactions"]
-      tx_value_sum = 0
+        block_number_int = int(block["number"], 0)
 
-      block_number_int = int(block["number"], 0)
+        block_timestamp_datetime = datetime.datetime.fromtimestamp(int(block["timestamp"], 0))
 
-      block_timestamp_datetime = datetime.datetime.fromtimestamp(int(block["timestamp"], 0))
+        for tx in transactions:
+          tx["blockNumber_int"] = block_number_int
+          tx["blockTimestamp"] = block_timestamp_datetime
+          tx["blockTimestamp_int"] = block_timestamp_datetime
+          # Convert wei into ether
+          tx["value_eth"] = int(tx["value"], 0) / self.WEI_ETH_FACTOR
+          tx["value_int"] = int(tx["value"], 0)
+          tx["gasPrice_int"] = int(tx["gasPrice"], 0)
+          tx["gas_int"] = int(tx["gas"], 0)
+          tx["input_str"] = self.hex_to_ascii(tx["input"])
+          tx["transactionIndex_int"] = int(tx["transactionIndex"], 0)
+          tx["txhash"] = tx["hash"]
+          tx.pop('hash', 0)
+          tx_value_sum += int(tx["value"], 0)
 
-      for tx in transactions:
-        tx["blockNumber_int"] = block_number_int
-        tx["blockTimestamp"] = block_timestamp_datetime
-        tx["blockTimestamp_int"] = block_timestamp_datetime
-        # Convert wei into ether
-        tx["value_eth"] = int(tx["value"], 0) / self.WEI_ETH_FACTOR
-        tx["value_int"] = int(tx["value"], 0)
-        tx["gasPrice_int"] = int(tx["gasPrice"], 0)
-        tx["gas_int"] = int(tx["gas"], 0)
-        tx["input_str"] = self.hex_to_ascii(tx["input"])
-        tx["transactionIndex_int"] = int(tx["transactionIndex"], 0)
-        tx["txhash"] = tx["hash"]
-        tx.pop('hash', 0)
-        tx_value_sum += int(tx["value"], 0)
+        block["transactions"] = transactions
+        block["number_int"] = block_number_int
+        block["difficulty_int"] = int(block["difficulty"], 0)
+        block["extraData_str"] = self.hex_to_ascii(block["extraData"])
+        block["timestamp"] = block_timestamp_datetime
+        block["timestamp_int"] = block_timestamp_datetime
+        block["gasLimit_int"] = int(block["gasLimit"], 0)
+        block["gasUsed_int"] = int(block["gasUsed"], 0)
+        block["size_int"] = int(block["size"], 0)
+        block["transactionCount"] = len(transactions)
+        block["txValueSum_int"] = tx_value_sum # going to keep this in Wei
+        block["totalDifficulty_int"] = int(block["totalDifficulty"], 0)
+        block["blockhash"] = block["hash"]
+        block.pop('hash', 0)
 
-      block["transactions"] = transactions
-      block["number_int"] = block_number_int
-      block["difficulty_int"] = int(block["difficulty"], 0)
-      block["extraData_str"] = self.hex_to_ascii(block["extraData"])
-      block["timestamp"] = block_timestamp_datetime
-      block["timestamp_int"] = block_timestamp_datetime
-      block["gasLimit_int"] = int(block["gasLimit"], 0)
-      block["gasUsed_int"] = int(block["gasUsed"], 0)
-      block["size_int"] = int(block["size"], 0)
-      block["transactionCount"] = len(transactions)
-      block["txValueSum_int"] = tx_value_sum # going to keep this in Wei
-      block["totalDifficulty_int"] = int(block["totalDifficulty"], 0)
-      block["blockhash"] = block["hash"]
-      block.pop('hash', 0)
+        block["uncles"] = ''
 
-      block["uncles"] = ''
-
-      self.blocks.append(block)
-
+        self.blocks.append(block)
+      else:
+        print("Block doesn't exist!")
 
     def save(self):
       if not self.blocks:
@@ -146,21 +147,22 @@ class PostgresDatastore(Datastore):
                   print(exception)
                   print("tx!!!!!")
 
-              old_sql = "select total_blocks from ethereum_parser_states where id=1"
+              old_sql = "select highest_block_number from ethereum_parser_states where id=1"
               dbcurs.execute(old_sql)
               res = dbcurs.fetchone()
 
-              print("Total blocks from ethereum_parser_states: %s " % res[0])
               print("Current block: %s" % block['number_int'])
 
-              if(block['number_int'] > res[0]):
-                update_sql = "update ethereum_parser_states set total_blocks = %s"
+              if( block['number_int'] > res[0]):
+                update_sql = "update ethereum_parser_states set highest_block_number = %s"
+                dbcurs.execute(update_sql, (block['number_int'], ))
+
+                print("Updated Highest block number w/: %s" % dbcurs.statusmessage)
+                update_sql = "update ethereum_parser_states set last_block_number = %s where id = 1"
                 dbcurs.execute(update_sql, (block['number_int'],))
-                print("Updated total blocks: %s" % dbcurs.statusmessage)
               else:
-                print("No update happening. Current block less than last block")
-              update_sql = "update ethereum_parser_states set last_block_number = %s where id = 1"
-              dbcurs.execute(update_sql, (block['number_int'],))
+                print("No update happening. Current block less than highest block")
+
 
       #except Exception as exception:
       #  for block in self.blocks:

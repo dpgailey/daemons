@@ -6,6 +6,8 @@ import multiprocessing as mp
 import argparse
 import requests
 import aiohttp
+import sys
+import time
 
 
 #from elasticsearch import exceptions as es_exceptions
@@ -124,7 +126,11 @@ if __name__ == "__main__":
     # Size of multiprocessing Pool processing the chunks
     POOL_SIZE = mp.cpu_count() + 2
 
+    # Guessing this is wait time in seconds to recv response from RPC server
     BLOCK_WAIT = 10
+
+    # Time to wait between checks for new blocks
+    TIME_TO_WAIT = 0
 
 
     # SKVL
@@ -146,8 +152,11 @@ if __name__ == "__main__":
     parser.add_argument('-r', '--ethrpcurl', default=ETH_URL,
                         help='The Ethereum RPC node url and port.')
 
-    parser.add_argument('-c', '--continuous', default=None,
+    parser.add_argument('--continuous', action="store_true",
                         help='Continue to run in foreground, waiting for new blocks.')
+
+    parser.add_argument('--last', action="store_true",
+                        help='Prints the last block number and exits.')
 
     # Adds for postgres
 
@@ -168,14 +177,20 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Setup all datastores
+    PostgresDatastore.config(args.dbuser, args.dbpass, args.dbname, args.dbport, args.dbhost, args.start_block, args.end_block)
+    db = PostgresDatastore()
+
     # Determine start block number if needed
     if not args.start_block:
-        print("No start block found.")
-        try:
-            args.start_block = 0 #ElasticDatastore.request(args.esurl, index=ElasticDatastore.B_INDEX_NAME, size=1, sort="number:desc")["hits"]["hits"][0]["_source"]["number"]
-        except (es_exceptions.NotFoundError, es_exceptions.RequestError):
-            args.start_block = 0
-        print("Start block automatically set to: {}".format(args.start_block))
+      print("No start block found. Using highest_last_block")
+      db.db_cursor.execute('select highest_block_number from ethereum_parser_states where id=1')
+      res = db.db_cursor.fetchone()
+      try:
+        args.start_block = res[0] #ElasticDatastore.request(args.esurl, index=ElasticDatastore.B_INDEX_NAME, size=1, sort="number:desc")["hits"]["hits"][0]["_source"]["number"]
+      except (es_exceptions.NotFoundError, es_exceptions.RequestError):
+        args.start_block = 0
+      print("Start block automatically set to: {}".format(args.start_block))
 
     # Determine last block number if needed
     if not args.end_block:
@@ -183,9 +198,9 @@ if __name__ == "__main__":
                                                Ethdrain.make_request("latest", False))["result"]["number"], 0) - BLOCK_WAIT
         print("Last block automatically set to: {}".format(args.end_block))
 
-
-    # Setup all datastores
-    PostgresDatastore.config(args.dbuser, args.dbpass, args.dbname, args.dbport, args.dbhost, args.start_block, args.end_block)
+    # Only print out last block and exit
+    if args.last:
+      sys.exit(1)
 
     if not args.continuous:
       if args.file:
@@ -207,6 +222,33 @@ if __name__ == "__main__":
       POOL.map(Ethdrain.launch, CHUNKS_ARR)
 
     else:
+      start_block = int(args.start_block)
       while True:
-        next
-    
+        BLOCK_LIST = [[start_block,],]
+        CHUNKS_ARR = list(BLOCK_LIST)
+        print(CHUNKS_ARR)
+
+        print("Processing {} blocks split into {} chunks on {} processes:".format(
+            len(BLOCK_LIST), len(CHUNKS_ARR), 1
+        ))
+        Ethdrain.eth_url = args.ethrpcurl
+        Ethdrain.load_datastore_classes(PostgresDatastore)
+
+        POOL = mp.Pool(POOL_SIZE)
+        POOL.map(Ethdrain.launch, BLOCK_LIST)
+        POOL.close()
+
+        start_block = start_block + 1
+        print("Next block automatically set to: {}".format(start_block))
+
+        db.db_cursor.execute('select last_block_number, highest_block_number from ethereum_parser_states where id=1')
+        res = db.db_cursor.fetchone()
+        # Time between checks
+        latest_block = int(http_post_request(ETH_URL,
+                                             Ethdrain.make_request("latest", False))["result"]["number"], 0) - BLOCK_WAIT
+        if latest_block < start_block:
+          start_block = start_block - 1
+          print("Ran out of blocks to parse. Sleeping for a little bit.")
+          time.sleep(60*1)
+        else:
+          time.sleep(TIME_TO_WAIT)

@@ -163,7 +163,7 @@ class PostgresDatastore(Datastore):
                 update_sql = "update ethereum_parser_states set last_block_number = %s where id = 1"
                 dbcurs.execute(update_sql, (block['number_int'],))
               else:
-                cprint("Current block less than highest block, not updating states.", 'yellow')
+                cprint("Not updating states. Current block :%s less than highest block %s", block['number_int'], res[0], 'yellow')
 
 
       #except Exception as exception:

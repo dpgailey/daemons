@@ -275,7 +275,6 @@ if __name__ == "__main__":
                                              Ethdrain.make_request("latest", False))["result"]["number"], 0) - BLOCK_WAIT
         if latest_block < start_block:
           start_block = start_block - 1
-          print("Ran out of blocks to parse. Sleeping for a little bit.")
           cprint("Ran out of blocks to parse. Sleeping for a little bit.", 'yellow')
           time.sleep(10)
         else:

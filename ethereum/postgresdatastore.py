@@ -8,6 +8,7 @@ import string
 
 from datastore import Datastore
 
+from termcolor import colored, cprint
 
 class PostgresDatastore(Datastore):
 
@@ -40,13 +41,14 @@ class PostgresDatastore(Datastore):
         self.dbhost = dbhost
         self.start_block = start_block
         self.end_block = end_block
-        print("Connecting to db using dbuser: %s, dbpass: %s, dbname: %s, dbport: %s, dbhost: %s" % (dbuser, dbpass, dbname, dbport, dbhost))
+        cprint("Connecting to db using dbuser: %s, dbpass: %s, dbname: %s, dbport: %s, dbhost: %s" % (dbuser, dbpass, dbname, dbport, dbhost), 'magenta')
 
     def extract(self, rpc_block):
 
       block = rpc_block["result"]
       if block:
         transactions = block["transactions"]
+        cprint("Transactions for this block: %s" % (len(transactions),), 'cyan')
         tx_value_sum = 0
 
         block_number_int = int(block["number"], 0)
@@ -87,11 +89,11 @@ class PostgresDatastore(Datastore):
 
         self.blocks.append(block)
       else:
-        print("Block doesn't exist!")
+        cprint("Block doesn't exist, problem: %s" % rpc_block, 'black', 'on_red')
 
     def save(self):
       if not self.blocks:
-        print("No blocks found")
+        cprint("No blocks found!", 'black', 'on_red')
         return True
       else:
         for block in self.blocks:
@@ -115,14 +117,14 @@ class PostgresDatastore(Datastore):
                   block_values = tuple([t[1] for t in l])
 
                   block_sql = self.db_cursor.mogrify(block_insert, ([psycopg2.extensions.AsIs(block_columns)] + [block_values]))
-                  print("Write block %s" % block['number_int'])
+                  cprint("Write block %s" % block['number_int'], 'green')
 
                   dbcurs.execute(block_sql)
                 else:
-                  print("Block already present. Skipping block: %s" % block['blockhash'])
+                  cprint("Block already present. Skipping block: %s" % block['blockhash'], 'yellow')
               except Exception as exception:
-                print("Block Exception")
-                print(exception)
+                cprint("Block Exception", 'black', 'on_red')
+                cprint(exception, 'black', 'on_red')
 
               for tx in transactions:
                 # check to see if TX exists
@@ -140,28 +142,28 @@ class PostgresDatastore(Datastore):
 
                     tx_sql = self.db_cursor.mogrify(tx_insert, ([psycopg2.extensions.AsIs(tx_columns)] + [tx_values]))
                     dbcurs.execute(tx_sql)
-                    print("- Write tx %s" % tx['txhash'])
+                    cprint("- Write tx %s" % tx['txhash'], 'green')
                   else:
-                    print("Transaction already present. Skipping tx: %s" % tx['txhash'])
+                    cprint("Transaction already present. Skipping tx: %s" % tx['txhash'], 'yellow')
                 except Exception as exception:
-                  print("Transaction Exception")
-                  print(exception)
+                  cprint("Transaction Exception", 'black', 'on_red')
+                  cprint(exception, 'black', 'on_red')
 
               old_sql = "select highest_block_number from ethereum_parser_states where id=1"
               dbcurs.execute(old_sql)
               res = dbcurs.fetchone()
 
-              print("Current block: %s" % block['number_int'])
+              cprint("Current block: %s" % block['number_int'], 'green')
 
               if( block['number_int'] > res[0]):
                 update_sql = "update ethereum_parser_states set highest_block_number = %s"
                 dbcurs.execute(update_sql, (block['number_int'], ))
 
-                print("Updated Highest block number w/: %s" % dbcurs.statusmessage)
+                cprint("Updated Highest block number w/: %s" % dbcurs.statusmessage, 'green')
                 update_sql = "update ethereum_parser_states set last_block_number = %s where id = 1"
                 dbcurs.execute(update_sql, (block['number_int'],))
               else:
-                print("No update happening. Current block less than highest block")
+                cprint("Current block less than highest block, not updating states.", 'yellow')
 
 
       #except Exception as exception:

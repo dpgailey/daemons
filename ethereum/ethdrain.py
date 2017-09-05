@@ -9,6 +9,7 @@ import aiohttp
 import sys
 import time
 
+from termcolor import colored, cprint
 
 #from elasticsearch import exceptions as es_exceptions
 #from elasticdatastore import ElasticDatastore
@@ -53,7 +54,7 @@ class Ethdrain:
         # Now that everything has been "extracted", perform the "save" action
         for data_store in self.data_stores:
             msg = data_store.save()
-            print("{}: {}".format(data_store.__class__.__name__, msg))
+            cprint("Save action results {}: {}".format(data_store.__class__.__name__, msg), 'cyan')
 
 
     async def fetch(self, session, block_nb):
@@ -65,7 +66,7 @@ class Ethdrain:
                     data_store.extract(await response.json())
         except (aiohttp.ClientError, asyncio.TimeoutError) as exception:
             logging.error("block: " + str(block_nb))
-            print("Issue with block {}:\n{}\n".format(block_nb, exception))
+            cprint("Issue with block {}:\n{}\n".format(block_nb, exception), 'black', 'on_red')
 
 
     async def sema_fetch(self, sem, session, block_nb):
@@ -136,7 +137,7 @@ if __name__ == "__main__":
     # SKVL
     with open("skvl.txt", "r") as your_file:
       skvl = your_file.read()
-    print(skvl)
+    cprint(skvl, 'green')
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--start', dest='start_block', type=int,
@@ -175,28 +176,60 @@ if __name__ == "__main__":
     parser.add_argument('-l', '--dbhost', default=DB_HOST,
                         help='The database host')
 
+    parser.add_argument('-b', '--blockfill', action="store_true",
+                        help='Start checking and filling blocks')
+
     args = parser.parse_args()
 
     # Setup all datastores
     PostgresDatastore.config(args.dbuser, args.dbpass, args.dbname, args.dbport, args.dbhost, args.start_block, args.end_block)
     db = PostgresDatastore()
 
+    Ethdrain.eth_url = args.ethrpcurl
+    Ethdrain.load_datastore_classes(PostgresDatastore)
+
+
+    # This checks for contiguous blocks
+    if args.blockfill:
+      # start fill from a particular point
+      cprint("Beginning Block Fill!", 'magenta')
+      start_block = args.start_block
+      while True:
+        db.db_cursor.execute('select number_int from ethereum_blocks where number_int = %s', (start_block,))
+        res = db.db_cursor.fetchone()
+        if res == None:
+          cprint("Missing block, fetching: %s" % (start_block,), 'black', 'on_magenta')
+          BLOCK_LIST = [[start_block,],]
+          POOL = mp.Pool(POOL_SIZE)
+          POOL.map(Ethdrain.launch, BLOCK_LIST)
+          POOL.close()
+
+          db.db_cursor.execute('update ethereum_parser_states set last_block_checked=%s where id=1', (start_block,))
+        else:
+          cprint("Block found, skipping: %s" % res[0], 'green')
+          start_block = start_block + 1
+      cprint("Finishing checking! All set!", 'green')
+      sys.exit(1)
+
+
+    #if args.transaction_check:
+
     # Determine start block number if needed
     if not args.start_block:
-      print("No start block found. Using highest_last_block")
+      cprint("No start block found. Using highest_last_block", 'yellow')
       db.db_cursor.execute('select highest_block_number from ethereum_parser_states where id=1')
       res = db.db_cursor.fetchone()
       try:
         args.start_block = res[0] #ElasticDatastore.request(args.esurl, index=ElasticDatastore.B_INDEX_NAME, size=1, sort="number:desc")["hits"]["hits"][0]["_source"]["number"]
       except (es_exceptions.NotFoundError, es_exceptions.RequestError):
         args.start_block = 0
-      print("Start block automatically set to: {}".format(args.start_block))
+      cprint("Start block automatically set to: {}".format(args.start_block), 'cyan')
 
     # Determine last block number if needed
     if not args.end_block:
         args.end_block = int(http_post_request(ETH_URL,
                                                Ethdrain.make_request("latest", False))["result"]["number"], 0) - BLOCK_WAIT
-        print("Last block automatically set to: {}".format(args.end_block))
+        cprint("Last block automatically set to: {}".format(args.end_block), 'cyan')
 
     # Only print out last block and exit
     if args.last:
@@ -212,11 +245,9 @@ if __name__ == "__main__":
 
       CHUNKS_ARR = list(chunks(BLOCK_LIST))
 
-      print("Processing {} blocks split into {} chunks on {} processes:".format(
+      cprint("Processing {} blocks split into {} chunks on {} processes:".format(
           len(BLOCK_LIST), len(CHUNKS_ARR), POOL_SIZE
-      ))
-      Ethdrain.eth_url = args.ethrpcurl
-      Ethdrain.load_datastore_classes(PostgresDatastore)
+      ), 'cyan')
 
       POOL = mp.Pool(POOL_SIZE)
       POOL.map(Ethdrain.launch, CHUNKS_ARR)
@@ -226,20 +257,16 @@ if __name__ == "__main__":
       while True:
         BLOCK_LIST = [[start_block,],]
         CHUNKS_ARR = list(BLOCK_LIST)
-        print(CHUNKS_ARR)
 
-        print("Processing {} blocks split into {} chunks on {} processes:".format(
+        cprint("Processing {} blocks split into {} chunks on {} processes:".format(
             len(BLOCK_LIST), len(CHUNKS_ARR), 1
-        ))
-        Ethdrain.eth_url = args.ethrpcurl
-        Ethdrain.load_datastore_classes(PostgresDatastore)
-
+        ), 'cyan')
         POOL = mp.Pool(POOL_SIZE)
         POOL.map(Ethdrain.launch, BLOCK_LIST)
         POOL.close()
 
         start_block = start_block + 1
-        print("Next block automatically set to: {}".format(start_block))
+        cprint("Next block automatically set to: {}".format(start_block), 'cyan')
 
         db.db_cursor.execute('select last_block_number, highest_block_number from ethereum_parser_states where id=1')
         res = db.db_cursor.fetchone()
@@ -249,6 +276,7 @@ if __name__ == "__main__":
         if latest_block < start_block:
           start_block = start_block - 1
           print("Ran out of blocks to parse. Sleeping for a little bit.")
+          cprint("Ran out of blocks to parse. Sleeping for a little bit.", 'yellow')
           time.sleep(10)
         else:
           time.sleep(TIME_TO_WAIT)

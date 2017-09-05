@@ -118,11 +118,11 @@ class PostgresDatastore(Datastore):
                   print("Write block %s" % block['number_int'])
 
                   dbcurs.execute(block_sql)
+                else:
+                  print("Block already present. Skipping block: %s" % block['blockhash'])
               except Exception as exception:
+                print("Block Exception")
                 print(exception)
-                print(block_columns)
-                print(block_values)
-                print("block!!!!!")
 
               for tx in transactions:
                 # check to see if TX exists
@@ -141,11 +141,11 @@ class PostgresDatastore(Datastore):
                     tx_sql = self.db_cursor.mogrify(tx_insert, ([psycopg2.extensions.AsIs(tx_columns)] + [tx_values]))
                     dbcurs.execute(tx_sql)
                     print("- Write tx %s" % tx['txhash'])
+                  else:
+                    print("Transaction already present. Skipping tx: %s" % tx['txhash'])
                 except Exception as exception:
-                  print(tx_columns)
-                  print(tx_values)
+                  print("Transaction Exception")
                   print(exception)
-                  print("tx!!!!!")
 
               old_sql = "select highest_block_number from ethereum_parser_states where id=1"
               dbcurs.execute(old_sql)

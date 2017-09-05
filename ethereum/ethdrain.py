@@ -249,6 +249,6 @@ if __name__ == "__main__":
         if latest_block < start_block:
           start_block = start_block - 1
           print("Ran out of blocks to parse. Sleeping for a little bit.")
-          time.sleep(60*1)
+          time.sleep(10)
         else:
           time.sleep(TIME_TO_WAIT)

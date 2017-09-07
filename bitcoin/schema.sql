@@ -26,9 +26,9 @@ Transactions:
 
 */
 
-/*DROP TABLE bitcoin_blocks;
+DROP TABLE bitcoin_blocks;
 
-DROP TABLE bitcoin_transactions;*/
+DROP TABLE bitcoin_transactions;
 
 CREATE TABLE bitcoin_blocks (
 
@@ -46,13 +46,13 @@ CREATE TABLE bitcoin_blocks (
 
   merkle_root TEXT,
 
-  "timestamp" TIMESTAMP,
+  creation_time TIMESTAMP,
 
   bits TEXT,
 
   nonce TEXT,
 
-  difficulty TEXT,
+  difficulty TEXT
 
 );
 
@@ -72,3 +72,11 @@ CREATE TABLE bitcoin_transactions (
 
   n_outputs TEXT
 );
+
+CREATE TABLE bitcoin_parser_states (
+  id INT,
+  total_blocks NUMERIC,
+  last_block_checked NUMERIC
+);
+
+INSERT INTO bitcoin_parser_states (id, total_blocks, last_block_checked) values (1, 0, 0);

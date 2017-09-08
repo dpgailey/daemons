@@ -3,8 +3,10 @@
 import datetime
 import psycopg2
 import sys
+import requests, json
 
 from blockchain_parser.blockchain import Blockchain
+
 
 #Loads up the last block state it was on
 def get_last_block_state():

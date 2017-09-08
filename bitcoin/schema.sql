@@ -30,6 +30,8 @@ DROP TABLE bitcoin_blocks;
 
 DROP TABLE bitcoin_transactions;
 
+DROP TABLE bitcoin_parser_states;
+
 CREATE TABLE bitcoin_blocks (
 
   hash TEXT NOT NULL,
@@ -74,9 +76,9 @@ CREATE TABLE bitcoin_transactions (
 );
 
 CREATE TABLE bitcoin_parser_states (
-  id INT,
+  id INT NOT NULL,
   total_blocks NUMERIC,
-  last_block_checked NUMERIC
+  last_block_hash TEXT
 );
 
-INSERT INTO bitcoin_parser_states (id, total_blocks, last_block_checked) values (1, 0, 0);
+INSERT INTO bitcoin_parser_states (id, total_blocks, last_block_hash) values (1, 0, 0);

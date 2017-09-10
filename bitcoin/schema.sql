@@ -36,25 +36,31 @@ CREATE TABLE bitcoin_blocks (
 
   hash TEXT NOT NULL,
 
-  hex TEXT,
-
-  size TEXT,
-
-  height TEXT,
-
-  version TEXT,
-
-  previous_block_hash TEXT,
-
-  merkle_root TEXT,
-
-  creation_time TIMESTAMP,
-
-  bits TEXT,
+  merkleRoot TEXT,
 
   nonce TEXT,
 
-  difficulty TEXT
+  previousBlockHash TEXT,
+
+  version TEXT,
+
+  weight TEXT,
+
+  chainWork TEXT,
+
+  medianTime TEXT,
+
+  height TEXT,
+
+  difficulty TEXT,
+
+  confirmations TEXT,
+
+  creationTime TEXT,
+
+  versionHex TEXT,
+
+  strippedSize TEXT
 
 );
 
@@ -62,23 +68,33 @@ CREATE TABLE bitcoin_transactions (
 
   hash TEXT NOT NULL,
 
-  inputs TEXT,
+  blockHash TEXT,
+  
+  txid TEXT,
 
-  outputs TEXT,
+  blockTime TEXT,
 
-  versions TEXT,
+  version TEXT,
+
+  confirmations TEXT,
+
+  creationTime TEXT,
 
   locktime TEXT,
 
-  n_inputs TEXT,
+  vsize TEXT,
 
-  n_outputs TEXT
+  size TEXT,
+
+  coinbase TEXT,
+
+  squence TEXT
 );
 
 CREATE TABLE bitcoin_parser_states (
   id INT NOT NULL,
-  total_blocks NUMERIC,
-  last_block_hash TEXT
+  totalBlocks NUMERIC,
+  lastBlockHash TEXT
 );
 
-INSERT INTO bitcoin_parser_states (id, total_blocks, last_block_hash) values (1, 0, 0);
+INSERT INTO bitcoin_parser_states (id, totalBlocks, lastBlockHash) values (1, 0, 0);

@@ -18,19 +18,19 @@ Block:
 
 Transactions:
 
-  'hash': 439aee1e1aa6923ad61c1990459f88de1faa3e18b4ee125f99b94b82e1e0af5f
-  'blockHash': 000000002978eecde8d020f7f057083bc990002fff495121d7dc1c26d00c00f8
-  'hex': 01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0704ffff001d011effffffff0100f2052a01000000434104c9eb99d7bbbd9acfab695c8aa8b931beb43292f2fecdc19d7e687b524d2e2c8a9d167f9be930634adae005424b441a9de8e8c15d8b2462661eb78418a8aba662ac00000000
-  'txid': 439aee1e1aa6923ad61c1990459f88de1faa3e18b4ee125f99b94b82e1e0af5f
-  'blockTime': 1231610361
-  'version': 1
-  'confirmations': 481769
-  'creationTime': 1231610361
-  'locktime': 0
-  'vsize': 134
-  'size': 134
-  'coinbase': 04ffff001d011e
-  'squence': 4294967295
+  'hash': '439aee1e1aa6923ad61c1990459f88de1faa3e18b4ee125f99b94b82e1e0af5f'
+  'blockHash': '000000002978eecde8d020f7f057083bc990002fff495121d7dc1c26d00c00f8'
+  'hex': '01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0704ffff001d011effffffff0100f2052a01000000434104c9eb99d7bbbd9acfab695c8aa8b931beb43292f2fecdc19d7e687b524d2e2c8a9d167f9be930634adae005424b441a9de8e8c15d8b2462661eb78418a8aba662ac00000000'
+  'txid': '439aee1e1aa6923ad61c1990459f88de1faa3e18b4ee125f99b94b82e1e0af5f'
+  'blockTime': '1231610361'
+  'version': '1'
+  'confirmations': '481769'
+  'creationTime': '1231610361'
+  'locktime': '0'
+  'vsize': '134'
+  'size': '134'
+  'coinbase': '04ffff001d011e'
+  'squence': '4294967295'
 
 */
 
@@ -119,3 +119,10 @@ CREATE TABLE bitcoin_parser_states (
 );
 
 INSERT INTO bitcoin_parser_states (id, totalBlocks, lastBlockHash) values (1, 0, 0);
+
+/* INDEXES */
+
+CREATE INDEX bitcoin_block_hash ON bitcoin_blocks (hash);
+CREATE INDEX bitcoin_block_merkle_root ON bitcoin_blocks (merkleRoot);
+CREATE INDEX bitcoin_tx_and_hash ON bitcoin_transactions (txid, hash);
+CREATE INDEX bitcoin_tx_hash ON bitcoin_transactions (hash);

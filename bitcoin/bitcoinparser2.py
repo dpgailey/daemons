@@ -7,6 +7,9 @@ import requests, json
 import multiprocessing as mp
 import time
 
+from pebble import ProcessPool
+from pebble.common import ProcessExpired
+from concurrent.futures import TimeoutError
 from blockchain_parser.blockchain import Blockchain
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 from multiprocessing.pool import ThreadPool

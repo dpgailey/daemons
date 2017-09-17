@@ -8,7 +8,9 @@ import multiprocessing as mp
 import time
 import itertools
 
-from pebble import process, TimeoutError
+from pebble import ProcessPool
+from pebble.common import ProcessExpired
+from concurrent.futures import TimeoutError
 from blockchain_parser.blockchain import Blockchain
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 from multiprocessing.pool import ThreadPool
@@ -52,7 +54,8 @@ def get_failed_blocks():
         highest_block = row[1]
 
     global blocks_stored_count
-    blocks_stored_count = highest_block
+    if (highest_block > 0):
+      blocks_stored_count = highest_block
 
     print("Loaded failed blocks: " + str(blocks_to_check))
   except Exception as e:
@@ -92,6 +95,9 @@ def commit_latest_block(hash, index):
   cur.execute(set_last_block_sql, data)
   conn.commit()
   blocks_stored_count += 1
+  global blocks_to_check
+  blocks_to_check.remove(index)
+  print(str(len(blocks_to_check)) + " " + str(index))
   print("Block " + str(blocks_stored_count) + " commited to database at " + str(datetime.datetime.now()))
 
 def remove_select_block(block_hash, index):
@@ -244,8 +250,6 @@ blocks_to_check = list()
 get_last_block_state()
 get_failed_blocks()
 
-
-
 if __name__ == "__main__":
 
   tryCount = 50
@@ -261,9 +265,7 @@ if __name__ == "__main__":
   print("Parsing from block: " + str(blocks_stored_count) + " to " + str(full_chain_length))
 
   #Loops through bitcoin_blockchain extracting block & transaction info
-  if (full_chain_length - blocks_stored_count > 0):
-
-
+  while (full_chain_length - blocks_stored_count > 0):
 
     #Makes sure it doesn't try to parse more blocks than there are
     if ((full_chain_length - blocks_stored_count) < max_blocks_per_cycle):
@@ -271,8 +273,12 @@ if __name__ == "__main__":
     else:
       blocks_per_cycle = max_blocks_per_cycle
 
+    print("Blocks to check length: " + str(len(blocks_to_check)))
+
     for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)
+
+
 
     tryCount = 50
     while tryCount > 0:
@@ -298,11 +304,18 @@ if __name__ == "__main__":
     for index in range(len(blocks)):
       blocks[index]['index'] = blocks_to_check[index]
 
+    with ProcessPool() as pool:
+      pool.map(parse_block_to_postgresql_database, blocks, timeout=2)
+
+    #NEEDS TO BE REMOVED
+    blocks_stored_count += len(blocks_to_check)
+    blocks_to_check = list()
+
     #for block in blocks:
     #  parse_block_to_postgresql_database(block)
 
-    with mp.Pool(POOL_SIZE) as pool:
-      jobs = [pool.schedule(parse_block_to_postgresql_database, blocks[i], timeout=5) for i in range(len(blocks))]
+    #with mp.Pool(POOL_SIZE) as pool:
+    #  jobs = [pool.schedule(parse_block_to_postgresql_database, blocks[i], timeout=5) for i in range(len(blocks))]
 
     #POOL = mp.Pool(POOL_SIZE)
     #POOL.map(parse_block_to_postgresql_database, blocks).get(timeout = 1)

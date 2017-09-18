@@ -11,6 +11,7 @@ import itertools
 from pebble import ProcessPool
 from pebble.common import ProcessExpired
 from concurrent.futures import TimeoutError
+from concurrent.futures import ProcessPoolExecutor
 from blockchain_parser.blockchain import Blockchain
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 from multiprocessing.pool import ThreadPool
@@ -95,8 +96,8 @@ def commit_latest_block(hash, index):
   cur.execute(set_last_block_sql, data)
   conn.commit()
   blocks_stored_count += 1
-  global blocks_to_check
-  blocks_to_check.remove(index)
+  #global blocks_to_check
+  #blocks_to_check.remove(index)
   print(str(len(blocks_to_check)) + " " + str(index))
   print("Block " + str(blocks_stored_count) + " commited to database at " + str(datetime.datetime.now()))
 
@@ -181,7 +182,7 @@ def parse_block_to_postgresql_database(block):
 
 
 
-    if (block_index >= 1000):
+    if (block_index >= 1):
       #Loops through transactions, compiles data for storage
       for txid in block["tx"]:
         raw_trans = rpc_connection.batch_([["getrawtransaction", txid, 1]])
@@ -225,15 +226,17 @@ def parse_block_to_postgresql_database(block):
     #Commits changes
     insert_block(block_info, block_index)
     commit_latest_block(block["hash"], block_index)
+    return block_index
   except Exception as e:
     print("Error parsing block: " + str(e))
-    global blocks_to_check
-    blocks_to_check.append(block_index)
+    #global blocks_to_check
+    #blocks_to_check.append(block_index)
     #print("GOT TO REMOVE " + str(len(block)))
     #print("BLOCK DATA " + str(block_index) + " " + str(block["hash"]))
     #print(block["hash"])
     remove_select_block(block["hash"], block_index)
     print("GOT PAST REMOVE")
+    return -1
 
 
     #DELETE ALL RELATED BLOCK INFO
@@ -265,7 +268,7 @@ if __name__ == "__main__":
   print("Parsing from block: " + str(blocks_stored_count) + " to " + str(full_chain_length))
 
   #Loops through bitcoin_blockchain extracting block & transaction info
-  while (full_chain_length - blocks_stored_count > 0):
+  if (full_chain_length - blocks_stored_count > 0):
 
     #Makes sure it doesn't try to parse more blocks than there are
     if ((full_chain_length - blocks_stored_count) < max_blocks_per_cycle):
@@ -275,9 +278,10 @@ if __name__ == "__main__":
 
     print("Blocks to check length: " + str(len(blocks_to_check)))
 
+    #print(range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))))
+
     for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)
-
 
 
     tryCount = 50
@@ -302,14 +306,41 @@ if __name__ == "__main__":
     #print(str(len(blocks)) + " " + str(len(blocks_to_check)))
 
     for index in range(len(blocks)):
+      print(str(len(blocks)) + " " + str(index) + " " + str(type(blocks[index])) + " " + str(blocks_to_check[index]))
       blocks[index]['index'] = blocks_to_check[index]
 
-    with ProcessPool() as pool:
-      pool.map(parse_block_to_postgresql_database, blocks, timeout=2)
+    while (len(blocks) > 0):
+      with ProcessPool(POOL_SIZE) as pool:
+        future = pool.map(parse_block_to_postgresql_database, blocks, timeout=2)
 
+        try:
+          for n in future.result():
+              if (n >= 0):
+                print("Result: " + str(n))
+
+                for block_current in blocks:
+                  if (block_current["index"] == n):
+                    blocks.remove(block_current)
+
+                blocks_to_check.remove(n)
+        except TimeoutError:
+          print("TimeoutError: aborting remaining computations")
+          future.cancel()
+
+    #pool = ProcessPoolExecutor(POOL_SIZE)
+
+    #future = pool.submit(parse_block_to_postgresql_database, blocks)
+
+    #print(future.done())
+    #time.sleep(5)
+    #print(future.done())
+
+    #print(future.result())
+
+    #print(blocks_to_remove)
     #NEEDS TO BE REMOVED
-    blocks_stored_count += len(blocks_to_check)
-    blocks_to_check = list()
+    #blocks_stored_count += len(blocks_to_check)
+    #blocks_to_check = list()
 
     #for block in blocks:
     #  parse_block_to_postgresql_database(block)

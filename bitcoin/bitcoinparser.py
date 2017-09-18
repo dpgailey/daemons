@@ -21,9 +21,9 @@ rpc_user = "jamie"
 rpc_password = "gabpam24"
 rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:8332"%(rpc_user, rpc_password))
 
-POOL_SIZE = mp.cpu_count() + 2
 
-max_blocks_per_cycle = 50
+
+max_blocks_per_cycle = 100
 
 #Loads up the last block state it was on
 def get_last_block_state():
@@ -32,12 +32,12 @@ def get_last_block_state():
   last_block_row = cur.fetchall()
 
   #Sets up last block state reference
-  global blocks_stored_count
   blocks_stored_count = last_block_row[0][1]
-  global last_block_hash
   last_block_hash = last_block_row[0][2]
 
   print("Succesfully restored block state at block: " + str(last_block_row[0][1]))
+
+  return [blocks_stored_count, last_block_hash]
 
 #Loads up the last block state it was on
 def get_failed_blocks():
@@ -46,21 +46,18 @@ def get_failed_blocks():
     cur.execute(get_failed_blocks_sql)
     failed_block_rows = cur.fetchall()
 
+    loaded_error_blocks = list()
     highest_block = 0
 
-    global blocks_to_check
     for row in failed_block_rows:
-      blocks_to_check.append(row[1])
+      loaded_error_blocks.append(row[1])
       if (row[1] > highest_block):
         highest_block = row[1]
 
-    global blocks_stored_count
-    if (highest_block > 0):
-      blocks_stored_count = highest_block
 
-    print("Loaded failed blocks: " + str(blocks_to_check))
+    return loaded_error_blocks
   except Exception as e:
-    raise
+    return list()
 
 
 def get_string_formatter(length):
@@ -74,7 +71,7 @@ def get_string_formatter(length):
   return data_values
 
 #Saves block & stores information about the last block into bitcoin_parser_states table
-def commit_latest_block(hash, index):
+def commit_lastest_block(hash, index):
 
   try:
     delete_failed_block_sql = "DELETE FROM bitcoin_failed_blocks WHERE failedBlockHash = %s"
@@ -86,20 +83,19 @@ def commit_latest_block(hash, index):
   cur.execute(clear_bitcoin_parser_states_sql)
 
   #Updates current block state
-  global last_block_hash
-  last_block_hash = hash
+  #global last_block_hash
+  #last_block_hash = hash
 
-  global blocks_stored_count
+  #global blocks_stored_count
   set_last_block_sql = "INSERT INTO bitcoin_parser_states (id, totalBlocks, lastBlockHash) VALUES (%s, %s, %s)"
   data = (1, blocks_stored_count, last_block_hash)
 
   cur.execute(set_last_block_sql, data)
   conn.commit()
-  blocks_stored_count += 1
   #global blocks_to_check
   #blocks_to_check.remove(index)
-  print(str(len(blocks_to_check)) + " " + str(index))
-  print("Block " + str(blocks_stored_count) + " commited to database at " + str(datetime.datetime.now()))
+  #print(str(len(blocks_to_check)) + " " + str(index))
+
 
 def remove_select_block(block_hash, index):
 
@@ -138,11 +134,17 @@ def insert_transaction(trans_info):
 def current_blockchain_length():
   return rpc_connection.batch_([["getblockcount"]])[0]
 
-def parse_block_to_postgresql_database(block):
+def parse_block_to_postgresql_database(block_index):
 
-  block_index = block["index"]
+  #block_index = block["index"]
 
   try:
+
+    commands = [ [ "getblockhash", block_index] ]
+    block_hashes = rpc_connection.batch_(commands)
+    blocks = rpc_connection.batch_([ [ "getblock", block_hashes[0] ]])
+    block = blocks[0]
+
     block_info = list()
 
     median_time = block["mediantime"]
@@ -225,17 +227,18 @@ def parse_block_to_postgresql_database(block):
 
     #Commits changes
     insert_block(block_info, block_index)
-    commit_latest_block(block["hash"], block_index)
+    commit_lastest_block(block["hash"], block_index)
     return block_index
   except Exception as e:
-    print("Error parsing block: " + str(e))
+    print("Error parsing block "+str(block_index)+" : " + str(e))
     #global blocks_to_check
     #blocks_to_check.append(block_index)
     #print("GOT TO REMOVE " + str(len(block)))
     #print("BLOCK DATA " + str(block_index) + " " + str(block["hash"]))
     #print(block["hash"])
-    remove_select_block(block["hash"], block_index)
-    print("GOT PAST REMOVE")
+
+    #ADD BACK
+    #remove_select_block(block["hash"], block_index)
     return -1
 
 
@@ -247,28 +250,37 @@ conn = psycopg2.connect("dbname=bitcoin_blockchain user=jamie")
 cur = conn.cursor()
 
 #Initiates block state
-last_block_hash = None
-blocks_stored_count = 0
-blocks_to_check = list()
-get_last_block_state()
-get_failed_blocks()
+block_state = get_last_block_state()
+blocks_stored_count = block_state[0]
+last_block_hash = block_state[1]
+blocks_to_check = get_failed_blocks()
+
+for error_block_num in blocks_to_check:
+  if (error_block_num > blocks_stored_count):
+    blocks_stored_count = error_block_num
 
 if __name__ == "__main__":
 
   tryCount = 50
-  while tryCount > 0:
+  while True:
     try:
       full_chain_length = current_blockchain_length()
       break
     except Exception as e:
       print("Error getting length: " + str(e))
       tryCount -= 1
+      if (tryCount <= 0):
+        sys.exit(1)
 
+  commands = [ [ "getblockhash", 0] ]
+  block_hashes = rpc_connection.batch_(commands)
+  blocks = rpc_connection.batch_([ [ "getblock", block_hashes[0] ]])
+  print(blocks[0])
 
   print("Parsing from block: " + str(blocks_stored_count) + " to " + str(full_chain_length))
 
   #Loops through bitcoin_blockchain extracting block & transaction info
-  if (full_chain_length - blocks_stored_count > 0):
+  while (full_chain_length - blocks_stored_count > 0):
 
     #Makes sure it doesn't try to parse more blocks than there are
     if ((full_chain_length - blocks_stored_count) < max_blocks_per_cycle):
@@ -283,19 +295,23 @@ if __name__ == "__main__":
     for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)
 
-
+    '''
     tryCount = 50
-    while tryCount > 0:
+    while True:
       try:
         #Gets the current block for parsing from blockchain
         commands = [ [ "getblockhash", block_index] for block_index in blocks_to_check]
         block_hashes = rpc_connection.batch_(commands)
         blocks = rpc_connection.batch_([ [ "getblock", h ] for h in block_hashes ])
+        print(range(len(blocks)))
         break
       except Exception as e:
         print("Error getting block hashes: " + str(e))
         tryCount -= 1
+        if (tryCount <= 0):
+          sys.exit(1)'''
 
+    #print(str(len(blocks_to_check)) + " " + str(len(blocks)))
 
     #blocks_with_trans = list()
 
@@ -305,24 +321,34 @@ if __name__ == "__main__":
 
     #print(str(len(blocks)) + " " + str(len(blocks_to_check)))
 
-    for index in range(len(blocks)):
-      print(str(len(blocks)) + " " + str(index) + " " + str(type(blocks[index])) + " " + str(blocks_to_check[index]))
-      blocks[index]['index'] = blocks_to_check[index]
+    #for index in range(len(blocks)):
+    #  print(str(len(blocks)) + " " + str(index) + " " + str(type(blocks[index])) + " " + str(blocks_to_check[index]))
+    #  blocks[index]['index'] = blocks_to_check[index]
 
-    while (len(blocks) > 0):
+    while (len(blocks_to_check) > 0):
+
+      POOL_SIZE = mp.cpu_count() + 2
+
+      if (POOL_SIZE > blocks_to_check):
+        POOL_SIZE = len(blocks_to_check)
+
       with ProcessPool(POOL_SIZE) as pool:
-        future = pool.map(parse_block_to_postgresql_database, blocks, timeout=2)
+        future = pool.map(parse_block_to_postgresql_database, blocks_to_check, timeout=1)
 
         try:
           for n in future.result():
               if (n >= 0):
-                print("Result: " + str(n))
+                #print("Result: " + str(n))
 
-                for block_current in blocks:
-                  if (block_current["index"] == n):
-                    blocks.remove(block_current)
+                #for block_current in blocks:
+                #  if (block_current["index"] == n[0]):
+                #    blocks.remove(block_current)
 
                 blocks_to_check.remove(n)
+                blocks_stored_count += 1
+                last_block_hash = n
+                print("Blocks stored " + str(blocks_stored_count) + " update at " + str(datetime.datetime.now()))
+                #print("Blocks to check: " + str(len(blocks_to_check)) + " Blocks left: " + str(len(blocks)) + " Block removed: " + str(n[0]))
         except TimeoutError:
           print("TimeoutError: aborting remaining computations")
           future.cancel()
@@ -358,7 +384,7 @@ if __name__ == "__main__":
     #POOL.join()
     #for result in parse_results:
     #  print("RESULT: " + result[0][0])
-    #  commit_latest_block(result[0][0])
+    #  commit_lastest_block(result[0][0])
 
 
     #nums = [0,1,2,3,4,5,6,7,8,9,10]

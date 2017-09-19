@@ -116,18 +116,16 @@ CREATE TABLE bitcoin_transactions (
 
 CREATE TABLE bitcoin_failed_blocks (
   id INT NOT NULL,
-  blockNum NUMERIC,
-  failedBlockHash TEXT
+  blockNum NUMERIC
 );
 
 CREATE TABLE bitcoin_parser_states (
   id INT NOT NULL,
-  totalBlocks NUMERIC,
-  lastBlockHash TEXT
+  totalBlocks NUMERIC
 );
 
 
-INSERT INTO bitcoin_parser_states (id, totalBlocks, lastBlockHash) values (1, 0, 0);
+INSERT INTO bitcoin_parser_states (id, totalBlocks) values (1, 0);
 
 /* INDEXES */
 

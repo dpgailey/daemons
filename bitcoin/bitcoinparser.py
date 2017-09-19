@@ -1,20 +1,13 @@
-# Instantiate the Blockchain by giving the path to the directory
-# containing the .blk files created by bitcoind
 import datetime
 import psycopg2
 import sys
 import requests, json
 import multiprocessing as mp
 import time
-import itertools
 
 from pebble import ProcessPool
-from pebble.common import ProcessExpired
 from concurrent.futures import TimeoutError
-from concurrent.futures import ProcessPoolExecutor
-from blockchain_parser.blockchain import Blockchain
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
-from multiprocessing.pool import ThreadPool
 
 
 rpc_user = "jamie"
@@ -32,11 +25,10 @@ def get_last_block_state():
 
   #Sets up last block state reference
   blocks_stored_count = last_block_row[0][1]
-  last_block_hash = last_block_row[0][2]
 
   print("Succesfully restored block state at block: " + str(last_block_row[0][1]))
 
-  return [blocks_stored_count, last_block_hash]
+  return blocks_stored_count
 
 #Loads up the last block state it was on
 def get_failed_blocks():
@@ -72,25 +64,25 @@ def get_string_formatter(length):
 def commit_lastest_block(hash, index):
 
   try:
-    delete_failed_block_sql = "DELETE FROM bitcoin_failed_blocks WHERE failedBlockHash = %s"
-    cur.execute(delete_failed_block_sql, (hash,))
+    delete_failed_block_sql = "DELETE FROM bitcoin_failed_blocks WHERE blockNum = %s"
+    cur.execute(delete_failed_block_sql, (index,))
   except:
     raise
 
   clear_bitcoin_parser_states_sql = "DELETE FROM bitcoin_parser_states"
   cur.execute(clear_bitcoin_parser_states_sql)
 
-  set_last_block_sql = "INSERT INTO bitcoin_parser_states (id, totalBlocks, lastBlockHash) VALUES (%s, %s, %s)"
-  data = (1, blocks_stored_count, last_block_hash)
+  set_last_block_sql = "INSERT INTO bitcoin_parser_states (id, totalBlocks) VALUES (%s, %s)"
+  data = (1, blocks_stored_count)
 
   cur.execute(set_last_block_sql, data)
   conn.commit()
 
 
-def commit_failed_block(block_hash, index):
+def commit_failed_block(index):
 
-  set_last_block_sql = "INSERT INTO bitcoin_failed_blocks (id, blockNum, failedBlockHash) VALUES (%s, %s, %s)"
-  data = (1, index, block_hash)
+  set_last_block_sql = "INSERT INTO bitcoin_failed_blocks (id, blockNum) VALUES (%s, %s)"
+  data = (1, index)
 
   cur.execute(set_last_block_sql, data)
   conn.commit()
@@ -209,9 +201,7 @@ conn = psycopg2.connect("dbname=bitcoin_blockchain user=jamie")
 cur = conn.cursor()
 
 #Initiates block state
-block_state = get_last_block_state()
-blocks_stored_count = block_state[0]
-last_block_hash = block_state[1]
+blocks_stored_count = get_last_block_state()
 blocks_to_check = get_failed_blocks()
 
 for error_block_num in blocks_to_check:
@@ -251,6 +241,7 @@ if __name__ == "__main__":
 
     for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)
+      commit_failed_block(index)
 
     POOL_SIZE = mp.cpu_count() + 2
 

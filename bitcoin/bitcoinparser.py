@@ -21,8 +21,8 @@ parser = argparse.ArgumentParser(description='Set up parser to read through bloc
 parser.add_argument("-c", "--continuous", dest='continual_parsing', action="store_true",
                     help="Continue to run in foreground, waiting for new blocks.")
 
-parser.add_argument("-s", "--start", dest='start_block',
-                    help="What block to start indexing. If nothing is provided, the latest block indexed will be used.", type=int)
+parser.add_argument("-s", "--start", dest='start_block', type=int,
+                    help="What block to start indexing. If nothing is provided, the latest block indexed will be used.")
 parser.add_argument("-e", "--end", dest="end_block", type=int,
                     help="What block to finish indexing. If nothing is provided, the latest one will be used.")
 
@@ -290,15 +290,15 @@ if __name__ == "__main__":
 
     print("Blocks to check length: " + str(len(blocks_to_check)))
 
-    while (len(blocks_to_check) > POOL_SIZE or blocks_per_cycle < POOL_SIZE):
-      with ProcessPool() as pool:
+    while (len(blocks_to_check) > POOL_SIZE or (blocks_per_cycle < POOL_SIZE and len(blocks_to_check) > 0)):
+      with ProcessPool(POOL_SIZE) as pool:
         future = pool.map(parse_block_to_postgresql_database, blocks_to_check, timeout=1)
         try:
           for n in future.result():
               if (n >= 0):
                 blocks_to_check.remove(n)
-                block_current += 1
                 print("Blocks stored " + str(block_current) + " update at " + str(datetime.datetime.now()))
+                block_current += 1
         except TimeoutError:
           print("TimeoutError: aborting remaining computations")
           future.cancel()

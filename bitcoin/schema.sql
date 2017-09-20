@@ -30,8 +30,6 @@ Transactions:
   'squence': '4294967295'
 */
 
-SELECT * FROM bitcoin_failed_blocks;
-
 DROP TABLE bitcoin_blocks;
 
 DROP TABLE bitcoin_transactions;

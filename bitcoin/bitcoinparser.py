@@ -21,6 +21,10 @@ pool_size = mp.cpu_count() + 2
 #Provides a description for the argument system
 parser = argparse.ArgumentParser(description='Set up parser to read through blocks on the blockchain')
 
+#Error input for argument system
+parser.add_argument("-errors", "--showerrors", dest='show_errors', action="store_true",
+                    help="Show erros that occur during parsing.")
+
 #Continious input for argument system
 parser.add_argument("-c", "--continuous", dest='continual_parsing', action="store_true",
                     help="Continue to run in foreground, waiting for new blocks.")
@@ -36,6 +40,7 @@ parser.add_argument("-e", "--end", dest="end_block", type=int,
 args = parser.parse_args()
 
 #Sets variables based on arguments provided
+show_errors = args.show_errors
 parse_multiple_blocks = args.continual_parsing
 start_block = args.start_block
 end_block = args.end_block
@@ -90,7 +95,7 @@ def get_string_formatter(length):
   return data_values
 
 #Saves block & stores information about the last block into bitcoin_parser_states table
-def commit_lastest_block(hash, index):
+def insert_block_state(hash, index):
 
   try:
     delete_failed_block_sql = "DELETE FROM bitcoin_failed_blocks WHERE blockNum = %s"
@@ -128,7 +133,22 @@ def insert_transaction(trans_info):
 
 #Gets the current full blockchain length
 def current_blockchain_length():
-  return rpc_connection.batch_([["getblockcount"]])[0]
+
+  block_count = 0
+
+  #Continually attempts to get the full chain length
+  tryCount = 50
+  while True:
+    try:
+      block_count = rpc_connection.batch_([["getblockcount"]])[0]
+      break
+    except Exception as e:
+      print("Error getting length: " + str(e))
+      tryCount -= 1
+      if (tryCount <= 0):
+        sys.exit(1)
+
+  return block_count
 
 #Takes in a block based on the index provided
 def parse_block_to_postgresql_database(block_index):
@@ -220,10 +240,14 @@ def parse_block_to_postgresql_database(block_index):
 
     #Commits changes
     insert_block(block_info, block_index)
-    commit_lastest_block(block["hash"], block_index)
+
+    if parse_multiple_blocks:
+      insert_block_state(block["hash"], block_index)
     return block_index
   except Exception as e:
-    print("Error parsing block "+str(block_index)+" : " + str(e))
+    if (show_errors):
+      print("Error parsing block "+str(block_index)+" : " + str(e))
+    return -1
 
 #Returns how many blocks it's meant to parse
 def blocks_to_parse_in_cycle(continual, desired_start, desired_end, block_at, block_chain_length, desired_blocks_per_cycle):
@@ -274,17 +298,8 @@ if (start_block != None):
 #Main method
 if __name__ == "__main__":
 
-  #Continually attempts to get the full chain length
-  tryCount = 50
-  while True:
-    try:
-      full_chain_length = current_blockchain_length()
-      break
-    except Exception as e:
-      print("Error getting length: " + str(e))
-      tryCount -= 1
-      if (tryCount <= 0):
-        sys.exit(1)
+  #Gets the full chain length
+  full_chain_length = current_blockchain_length()
 
   #Loops through bitcoin_blockchain extracting block & transaction info
   while (blocks_to_parse_in_cycle(parse_multiple_blocks, start_block, end_block, block_current, full_chain_length, max_blocks_per_cycle) > 0):
@@ -295,7 +310,9 @@ if __name__ == "__main__":
     #Adds on the the required block indexes
     for index in range(block_current, block_current + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)
-      commit_failed_block(index)
+
+      if parse_multiple_blocks:
+        commit_failed_block(index)
 
     print("Blocks to check length: " + str(len(blocks_to_check)))
 

@@ -27,13 +27,14 @@ parser.add_argument("-e", "--end", dest="end_block", type=int,
                     help="What block to finish indexing. If nothing is provided, the latest one will be used.")
 
 args = parser.parse_args()
-keep_parsing = args.continual_parsing
+parse_multiple_blocks = args.continual_parsing
 start_block = args.start_block
 end_block = args.end_block
 if (start_block is None):
-  keep_parsing = True
+  parse_multiple_blocks = True
 
-
+if (start_block is not None and end_block is not None):
+  parse_multiple_blocks = True
 
 #Loads up the last block state it was on
 def get_last_block_state():
@@ -42,11 +43,11 @@ def get_last_block_state():
   last_block_row = cur.fetchall()
 
   #Sets up last block state reference
-  blocks_stored_count = last_block_row[0][1]
+  block_current = last_block_row[0][1]
 
   print("Succesfully restored block state at block: " + str(last_block_row[0][1]))
 
-  return blocks_stored_count
+  return block_current
 
 #Loads up the last block state it was on
 def get_failed_blocks():
@@ -91,7 +92,7 @@ def commit_lastest_block(hash, index):
   cur.execute(clear_bitcoin_parser_states_sql)
 
   set_last_block_sql = "INSERT INTO bitcoin_parser_states (id, totalBlocks) VALUES (%s, %s)"
-  data = (1, blocks_stored_count)
+  data = (1, block_current)
 
   cur.execute(set_last_block_sql, data)
   conn.commit()
@@ -222,14 +223,14 @@ def blocks_to_parse_in_cycle(continual, desired_start, desired_end, block_at, bl
     blocks_to_parse = desired_end - block_at
 
   if (desired_start != None and desired_end != None):
-    if (blocks_to_parse > (desired_end - desired_start)):
-      blocks_to_parse = (desired_end - desired_start)
+    if (blocks_to_parse > (desired_end - block_at)):
+      blocks_to_parse = (desired_end - block_at)
 
   if (block_at > block_chain_length):
     blocks_to_parse = 0
 
-  if ((full_chain_length - blocks_stored_count) < desired_blocks_per_cycle):
-    blocks_to_parse = full_chain_length - blocks_stored_count
+  if ((full_chain_length - block_current) < desired_blocks_per_cycle):
+    blocks_to_parse = full_chain_length - block_current
 
   if (blocks_to_parse > desired_blocks_per_cycle):
     blocks_to_parse = desired_blocks_per_cycle
@@ -237,7 +238,7 @@ def blocks_to_parse_in_cycle(continual, desired_start, desired_end, block_at, bl
   if (continual == False and blocks_to_parse > 1):
     blocks_to_parse = 1
 
-  print (str(blocks_to_parse))
+  print ("Block at: " + str(block_at) + " Blocks to parse: " + str(blocks_to_parse))
   return blocks_to_parse
 
 #Connects to the database
@@ -245,19 +246,19 @@ conn = psycopg2.connect("dbname=bitcoin_blockchain user=jamie")
 cur = conn.cursor()
 
 #Initiates block state
-blocks_stored_count = get_last_block_state()
-if (keep_parsing == True):
+block_current = get_last_block_state()
+if (start_block is None):
   blocks_to_check = get_failed_blocks()
 else:
   blocks_to_check = list()
 
 
 for error_block_num in blocks_to_check:
-  if (error_block_num > blocks_stored_count):
-    blocks_stored_count = error_block_num
+  if (error_block_num > block_current):
+    block_current = error_block_num
 
 if (start_block != None):
-  blocks_stored_count = start_block
+  block_current = start_block
 
 if __name__ == "__main__":
 
@@ -272,37 +273,39 @@ if __name__ == "__main__":
       if (tryCount <= 0):
         sys.exit(1)
 
-  print("Parsing from block: " + str(blocks_stored_count) + " to " + str(full_chain_length))
+  print("Parsing from block: " + str(block_current) + " to " + str(full_chain_length))
 
   #Loops through bitcoin_blockchain extracting block & transaction info
-  while (blocks_to_parse_in_cycle(keep_parsing, start_block, end_block, blocks_stored_count, full_chain_length, max_blocks_per_cycle) > 0):
+  while (blocks_to_parse_in_cycle(parse_multiple_blocks, start_block, end_block, block_current, full_chain_length, max_blocks_per_cycle) > 0):
 
-    blocks_per_cycle = blocks_to_parse_in_cycle(keep_parsing, start_block, end_block, blocks_stored_count, full_chain_length, max_blocks_per_cycle)
+    blocks_per_cycle = blocks_to_parse_in_cycle(parse_multiple_blocks, start_block, end_block, block_current, full_chain_length, max_blocks_per_cycle)
 
-    print("Blocks to check length: " + str(blocks_per_cycle))
 
-    for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
+
+    for index in range(block_current, block_current + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)
       commit_failed_block(index)
 
     POOL_SIZE = mp.cpu_count() + 2
 
-    while (len(blocks_to_check) > POOL_SIZE):
-      with ProcessPool(POOL_SIZE) as pool:
+    print("Blocks to check length: " + str(len(blocks_to_check)))
+
+    while (len(blocks_to_check) > POOL_SIZE or blocks_per_cycle < POOL_SIZE):
+      with ProcessPool() as pool:
         future = pool.map(parse_block_to_postgresql_database, blocks_to_check, timeout=1)
         try:
           for n in future.result():
               if (n >= 0):
                 blocks_to_check.remove(n)
-                blocks_stored_count += 1
-                print("Blocks stored " + str(blocks_stored_count) + " update at " + str(datetime.datetime.now()))
+                block_current += 1
+                print("Blocks stored " + str(block_current) + " update at " + str(datetime.datetime.now()))
         except TimeoutError:
           print("TimeoutError: aborting remaining computations")
           future.cancel()
 
 
     print("Got through blocks")
-    if (blocks_per_cycle == 1):
+    if (blocks_per_cycle <= 1):
       break
 
 #Closes the database & program once complete

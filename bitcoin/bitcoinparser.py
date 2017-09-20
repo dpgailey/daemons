@@ -1,31 +1,30 @@
-# Instantiate the Blockchain by giving the path to the directory
-# containing the .blk files created by bitcoind
 import datetime
 import psycopg2
 import sys
 import requests, json
 import multiprocessing as mp
+import argparse
 import time
 
-from blockchain_parser.blockchain import Blockchain
+from pebble import ProcessPool
+from concurrent.futures import TimeoutError
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
-from multiprocessing.pool import ThreadPool
 
 rpc_user = "jamie"
 rpc_password = "gabpam24"
 rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:8332"%(rpc_user, rpc_password))
 
-POOL_SIZE = mp.cpu_count() + 2
+max_blocks_per_cycle = 1000
 
-max_blocks_per_cycle = 50
+parser = argparse.ArgumentParser(description='Set up parser to read through blocks on the blockchain')
 
 action="store_true"
 
 parser.add_argument("-c", "--continuous", dest='continual_parsing', action="store_true",
                     help="Continue to run in foreground, waiting for new blocks.")
 
-parser.add_argument("-s", "--start", dest='start_block', type=int,
-                    help="What block to start indexing. If nothing is provided, the latest block indexed will be used.")
+parser.add_argument("-s", "--start", dest='start_block',
+                    help="What block to start indexing. If nothing is provided, the latest block indexed will be used.", type=int)
 parser.add_argument("-e", "--end", dest="end_block", type=int,
                     help="What block to finish indexing. If nothing is provided, the latest one will be used.")
 
@@ -36,25 +35,40 @@ end_block = args.end_block
 if (start_block is None):
   keep_parsing = True
 
-if (start_block is None and end_block is not None):
-  keep_parsing = True
+
 
 #Loads up the last block state it was on
 def get_last_block_state():
+  get_last_block_hash_sql = "SELECT * FROM bitcoin_parser_states"
+  cur.execute(get_last_block_hash_sql)
+  last_block_row = cur.fetchall()
+
+  #Sets up last block state reference
+  blocks_stored_count = last_block_row[0][1]
+
+  print("Succesfully restored block state at block: " + str(last_block_row[0][1]))
+
+  return blocks_stored_count
+
+#Loads up the last block state it was on
+def get_failed_blocks():
   try:
-    get_last_block_hash_sql = "SELECT * FROM bitcoin_parser_states"
-    cur.execute(get_last_block_hash_sql)
-    last_block_row = cur.fetchall()
+    get_failed_blocks_sql = "SELECT * FROM bitcoin_failed_blocks"
+    cur.execute(get_failed_blocks_sql)
+    failed_block_rows = cur.fetchall()
 
-    #Sets up last block state reference
-    global blocks_stored_count
-    blocks_stored_count = last_block_row[0][1]
-    global last_block_hash
-    last_block_hash = last_block_row[0][2]
+    loaded_error_blocks = list()
+    highest_block = 0
 
-    print("Succesfully restored block state at block: " + str(last_block_row[0][1]))
-  except ValueError:
-    print("Unable to get last block state error: " + ValueError)
+    for row in failed_block_rows:
+      loaded_error_blocks.append(row[1])
+      if (row[1] > highest_block):
+        highest_block = row[1]
+
+    return loaded_error_blocks
+  except Exception as e:
+    return list()
+
 
 def get_string_formatter(length):
   data_values = ""
@@ -67,25 +81,34 @@ def get_string_formatter(length):
   return data_values
 
 #Saves block & stores information about the last block into bitcoin_parser_states table
-def commit_latest_block(hash, index):
+def commit_lastest_block(hash, index):
+
+  try:
+    delete_failed_block_sql = "DELETE FROM bitcoin_failed_blocks WHERE blockNum = %s"
+    cur.execute(delete_failed_block_sql, (index,))
+  except:
+    raise
+
   clear_bitcoin_parser_states_sql = "DELETE FROM bitcoin_parser_states"
   cur.execute(clear_bitcoin_parser_states_sql)
 
-  #Updates current block state
-  global last_block_hash
-  last_block_hash = hash
-
-  global blocks_stored_count
-  set_last_block_sql = "INSERT INTO bitcoin_parser_states (id, totalBlocks, lastBlockHash) VALUES (%s, %s, %s)"
-  data = (1, blocks_stored_count, last_block_hash)
+  set_last_block_sql = "INSERT INTO bitcoin_parser_states (id, totalBlocks) VALUES (%s, %s)"
+  data = (1, blocks_stored_count)
 
   cur.execute(set_last_block_sql, data)
   conn.commit()
-  blocks_stored_count += 1
-  print("Block " + str(blocks_stored_count) + " commited to database at " + str(datetime.datetime.now()))
+
+
+def commit_failed_block(index):
+
+  set_last_block_sql = "INSERT INTO bitcoin_failed_blocks (id, blockNum) VALUES (%s, %s)"
+  data = (1, index)
+
+  cur.execute(set_last_block_sql, data)
+  conn.commit()
 
 #Inserts block data into bitcoin_blocks table
-def insert_block(block_info):
+def insert_block(block_info, block_index):
   cur.execute("INSERT INTO bitcoin_blocks VALUES (" + get_string_formatter(len(block_info)) + ")", block_info)
   print("Added Block: " + str(block_info[0]))
 
@@ -97,12 +120,15 @@ def insert_transaction(trans_info):
 def current_blockchain_length():
   return rpc_connection.batch_([["getblockcount"]])[0]
 
-def parse_block_to_postgresql_database(block_data):
-
-  block = block_data[0]
-  block_index = block_data[1]
+def parse_block_to_postgresql_database(block_index):
 
   try:
+
+    commands = [ [ "getblockhash", block_index] ]
+    block_hashes = rpc_connection.batch_(commands)
+    blocks = rpc_connection.batch_([ [ "getblock", block_hashes[0] ]])
+    block = blocks[0]
+
     block_info = list()
 
     median_time = block["mediantime"]
@@ -116,7 +142,7 @@ def parse_block_to_postgresql_database(block_data):
     block_info.append(block["nonce"])
     block_info.append(block["nonce"])
 
-    if (blocks_stored_count == 0):
+    if (block_index == 0):
       block_info.append("NULL")
     else:
       block_info.append(block["previousblockhash"])
@@ -140,26 +166,9 @@ def parse_block_to_postgresql_database(block_data):
 
     print("Adding block: " + str(block_index))
 
-    #length = len(block_info)
 
-    #data_values = ""
-    #for index in range(length):
-    #  if (index <= length-2):
-    #    data_values += "%s, "
-    #  else:
-    #    data_values += "%s"
 
-    #parsed_info = list()
-
-    #parsed_info.append(block_info)
-
-    #cur.execute("INSERT INTO bitcoin_blocks VALUES (" + data_values + ")", block_info)
-
-    #print("Added Block: " + str(block_info[0]))
-
-    insert_block(block_info)
-
-    if (blocks_stored_count >= 1):
+    if (block_index >= 1):
       #Loops through transactions, compiles data for storage
       for txid in block["tx"]:
         raw_trans = rpc_connection.batch_([["getrawtransaction", txid, 1]])
@@ -201,87 +210,99 @@ def parse_block_to_postgresql_database(block_data):
           insert_transaction(trans_info)
 
     #Commits changes
-    commit_latest_block(block_info[0], block_index)
+    insert_block(block_info, block_index)
+    commit_lastest_block(block["hash"], block_index)
+    return block_index
   except Exception as e:
-    print(e)
-    global blocks_to_check
-    blocks_to_check.append(block_index)
+    print("Error parsing block "+str(block_index)+" : " + str(e))
 
-    #DELETE ALL RELATED BLOCK INFO
-    #print("Issue committing block: " + str(blocks_stored_count))
+
+def blocks_to_parse_in_cycle(continual, desired_start, desired_end, block_at, block_chain_length, desired_blocks_per_cycle):
+  blocks_to_parse = desired_blocks_per_cycle
+
+  if (desired_end != None):
+    blocks_to_parse = desired_end - block_at
+
+  if (desired_start != None and desired_end != None):
+    if (blocks_to_parse > (desired_end - desired_start)):
+      blocks_to_parse = (desired_end - desired_start)
+
+  if (block_at > block_chain_length):
+    blocks_to_parse = 0
+
+  if ((full_chain_length - blocks_stored_count) < desired_blocks_per_cycle):
+    blocks_to_parse = full_chain_length - blocks_stored_count
+
+  if (blocks_to_parse > desired_blocks_per_cycle):
+    blocks_to_parse = desired_blocks_per_cycle
+
+  if (continual == False and blocks_to_parse > 1):
+    blocks_to_parse = 1
+
+  print (str(blocks_to_parse))
+  return blocks_to_parse
 
 #Connects to the database
 conn = psycopg2.connect("dbname=bitcoin_blockchain user=jamie")
 cur = conn.cursor()
 
 #Initiates block state
-last_block_hash = None
-blocks_stored_count = 0
-get_last_block_state()
+blocks_stored_count = get_last_block_state()
+blocks_to_check = get_failed_blocks()
 
-blocks_to_check = list()
+
+for error_block_num in blocks_to_check:
+  if (error_block_num > blocks_stored_count):
+    blocks_stored_count = error_block_num
+
+if (start_block != None):
+  blocks_stored_count = start_block
 
 if __name__ == "__main__":
 
-  full_chain_length = current_blockchain_length()
+  tryCount = 50
+  while True:
+    try:
+      full_chain_length = current_blockchain_length()
+      break
+    except Exception as e:
+      print("Error getting length: " + str(e))
+      tryCount -= 1
+      if (tryCount <= 0):
+        sys.exit(1)
 
   print("Parsing from block: " + str(blocks_stored_count) + " to " + str(full_chain_length))
 
-  if (continual == False and blocks_to_parse > 1):
-    blocks_to_parse = 1
+  #Loops through bitcoin_blockchain extracting block & transaction info
+  while (blocks_to_parse_in_cycle(keep_parsing, start_block, end_block, blocks_stored_count, full_chain_length, max_blocks_per_cycle) > 0):
 
+    blocks_per_cycle = blocks_to_parse_in_cycle(keep_parsing, start_block, end_block, blocks_stored_count, full_chain_length, max_blocks_per_cycle)
 
-
-    #Makes sure it doesn't try to parse more blocks than there are
-    if ((full_chain_length - blocks_stored_count) < max_blocks_per_cycle):
-      blocks_per_cycle = full_chain_length - blocks_stored_count
-    else:
-      blocks_per_cycle = max_blocks_per_cycle
+    print("Blocks to check length: " + str(len(blocks_to_check)))
 
     for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
-      blocks_to_check.append(index)
-
-    tryCount = 50
-    while tryCount > 0:
-      try:
-        #Gets the current block for parsing from blockchain
-        commands = [ [ "getblockhash", block_index] for block_index in blocks_to_check]
-        block_hashes = rpc_connection.batch_(commands)
-        blocks = rpc_connection.batch_([ [ "getblock", h ] for h in block_hashes ])
-        break
-      except Exception as e:
-        print(e)
-        tryCount -= 1
-
-
-    #blocks_with_trans = list()
-
-    #current_block_hash = rpc_connection.batch_([["getblockhash", 0]])
-    #current_blocks = rpc_connection.batch_([["getblock", current_block_hash[0]]])
-    #block = current_blocks[0]
-
-    print(len(blocks_to_check))
-
-    #for index in range(len(blocks_to_check)):
-    #  parse_block_to_postgresql_database(blocks[index], blocks_to_check[index])
-
-    #for block in blocks:
-    #  parse_block_to_postgresql_database(block)
-
-    print("Blocks to check length: " + str(blocks_per_cycle))
-
-    for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
-
       blocks_to_check.append(index)
       commit_failed_block(index)
 
+    POOL_SIZE = mp.cpu_count() + 2
 
-    #nums = [0,1,2,3,4,5,6,7,8,9,10]
+    while (len(blocks_to_check) > POOL_SIZE):
+      with ProcessPool(POOL_SIZE) as pool:
+        future = pool.map(parse_block_to_postgresql_database, blocks_to_check, timeout=1)
+        try:
+          for n in future.result():
+              if (n >= 0):
+                blocks_to_check.remove(n)
+                blocks_stored_count += 1
+                print("Blocks stored " + str(blocks_stored_count) + " update at " + str(datetime.datetime.now()))
+        except TimeoutError:
+          print("TimeoutError: aborting remaining computations")
+          future.cancel()
 
-    #POOL.map(simpleTest, nums)
-    print("TEST")
-    #POOL.close()
 
+    print("Got through blocks")
+    if (blocks_per_cycle == 1):
+      break
 
 #Closes the database & program once complete
 cur.close()

@@ -18,8 +18,6 @@ max_blocks_per_cycle = 1000
 
 parser = argparse.ArgumentParser(description='Set up parser to read through blocks on the blockchain')
 
-action="store_true"
-
 parser.add_argument("-c", "--continuous", dest='continual_parsing', action="store_true",
                     help="Continue to run in foreground, waiting for new blocks.")
 
@@ -248,7 +246,10 @@ cur = conn.cursor()
 
 #Initiates block state
 blocks_stored_count = get_last_block_state()
-blocks_to_check = get_failed_blocks()
+if (keep_parsing == True):
+  blocks_to_check = get_failed_blocks()
+else:
+  blocks_to_check = list()
 
 
 for error_block_num in blocks_to_check:
@@ -278,7 +279,7 @@ if __name__ == "__main__":
 
     blocks_per_cycle = blocks_to_parse_in_cycle(keep_parsing, start_block, end_block, blocks_stored_count, full_chain_length, max_blocks_per_cycle)
 
-    print("Blocks to check length: " + str(len(blocks_to_check)))
+    print("Blocks to check length: " + str(blocks_per_cycle))
 
     for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)

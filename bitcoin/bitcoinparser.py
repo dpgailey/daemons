@@ -16,23 +16,33 @@ rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:8332"%(rpc_user, rpc_p
 
 max_blocks_per_cycle = 1000
 
+pool_size = mp.cpu_count() + 2
+
+#Provides a description for the argument system
 parser = argparse.ArgumentParser(description='Set up parser to read through blocks on the blockchain')
 
+#Continious input for argument system
 parser.add_argument("-c", "--continuous", dest='continual_parsing', action="store_true",
                     help="Continue to run in foreground, waiting for new blocks.")
 
+#Start block input for argument system
 parser.add_argument("-s", "--start", dest='start_block', type=int,
                     help="What block to start indexing. If nothing is provided, the latest block indexed will be used.")
+
+#End block input for argumeent system
 parser.add_argument("-e", "--end", dest="end_block", type=int,
                     help="What block to finish indexing. If nothing is provided, the latest one will be used.")
 
 args = parser.parse_args()
+
+#Sets variables based on arguments provided
 parse_multiple_blocks = args.continual_parsing
 start_block = args.start_block
 end_block = args.end_block
+
+#Makes sure it's set to parse multiple blocks when there's no other option
 if (start_block is None):
   parse_multiple_blocks = True
-
 if (start_block is not None and end_block is not None):
   parse_multiple_blocks = True
 
@@ -68,7 +78,7 @@ def get_failed_blocks():
   except Exception as e:
     return list()
 
-
+#Returns a formatted string of %s, %s, %s based on length
 def get_string_formatter(length):
   data_values = ""
   for index in range(length):
@@ -97,7 +107,7 @@ def commit_lastest_block(hash, index):
   cur.execute(set_last_block_sql, data)
   conn.commit()
 
-
+#Inserts failed block data into bitcoin_failed_blocks table
 def commit_failed_block(index):
 
   set_last_block_sql = "INSERT INTO bitcoin_failed_blocks (id, blockNum) VALUES (%s, %s)"
@@ -116,9 +126,11 @@ def insert_transaction(trans_info):
   cur.execute("INSERT INTO bitcoin_transactions VALUES (" + get_string_formatter(len(trans_info)) + ")", trans_info)
   print("Added Trans: " + str(trans_info[0]))
 
+#Gets the current full blockchain length
 def current_blockchain_length():
   return rpc_connection.batch_([["getblockcount"]])[0]
 
+#Takes in a block based on the index provided
 def parse_block_to_postgresql_database(block_index):
 
   try:
@@ -164,8 +176,6 @@ def parse_block_to_postgresql_database(block_index):
     block_info.append(block["strippedsize"])
 
     print("Adding block: " + str(block_index))
-
-
 
     if (block_index >= 1):
       #Loops through transactions, compiles data for storage
@@ -215,7 +225,7 @@ def parse_block_to_postgresql_database(block_index):
   except Exception as e:
     print("Error parsing block "+str(block_index)+" : " + str(e))
 
-
+#Returns how many blocks it's meant to parse
 def blocks_to_parse_in_cycle(continual, desired_start, desired_end, block_at, block_chain_length, desired_blocks_per_cycle):
   blocks_to_parse = desired_blocks_per_cycle
 
@@ -252,16 +262,19 @@ if (start_block is None):
 else:
   blocks_to_check = list()
 
-
+#Sets current block based on the current error blocks
 for error_block_num in blocks_to_check:
   if (error_block_num > block_current):
     block_current = error_block_num
 
+#Sets current block based on input provided
 if (start_block != None):
   block_current = start_block
 
+#Main method
 if __name__ == "__main__":
 
+  #Continually attempts to get the full chain length
   tryCount = 50
   while True:
     try:
@@ -273,25 +286,23 @@ if __name__ == "__main__":
       if (tryCount <= 0):
         sys.exit(1)
 
-  print("Parsing from block: " + str(block_current) + " to " + str(full_chain_length))
-
   #Loops through bitcoin_blockchain extracting block & transaction info
   while (blocks_to_parse_in_cycle(parse_multiple_blocks, start_block, end_block, block_current, full_chain_length, max_blocks_per_cycle) > 0):
 
+    #Sets the amount of blocks to parse per cycle
     blocks_per_cycle = blocks_to_parse_in_cycle(parse_multiple_blocks, start_block, end_block, block_current, full_chain_length, max_blocks_per_cycle)
 
-
-
+    #Adds on the the required block indexes
     for index in range(block_current, block_current + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)
       commit_failed_block(index)
 
-    POOL_SIZE = mp.cpu_count() + 2
-
     print("Blocks to check length: " + str(len(blocks_to_check)))
 
-    while (len(blocks_to_check) > POOL_SIZE or (blocks_per_cycle < POOL_SIZE and len(blocks_to_check) > 0)):
-      with ProcessPool(POOL_SIZE) as pool:
+    #Loops through the blocks requested for the cycle
+    while (len(blocks_to_check) > pool_size or (blocks_per_cycle < pool_size and len(blocks_to_check) > 0)):
+      with ProcessPool(pool_size) as pool:
+        #Adds blocks to multithreading process pool
         future = pool.map(parse_block_to_postgresql_database, blocks_to_check, timeout=1)
         try:
           for n in future.result():
@@ -305,6 +316,8 @@ if __name__ == "__main__":
 
 
     print("Got through blocks")
+
+    #Ends cycling if only 1 block was paresed
     if (blocks_per_cycle <= 1):
       break
 

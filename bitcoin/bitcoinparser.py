@@ -19,6 +19,26 @@ POOL_SIZE = mp.cpu_count() + 2
 
 max_blocks_per_cycle = 50
 
+action="store_true"
+
+parser.add_argument("-c", "--continuous", dest='continual_parsing', action="store_true",
+                    help="Continue to run in foreground, waiting for new blocks.")
+
+parser.add_argument("-s", "--start", dest='start_block', type=int,
+                    help="What block to start indexing. If nothing is provided, the latest block indexed will be used.")
+parser.add_argument("-e", "--end", dest="end_block", type=int,
+                    help="What block to finish indexing. If nothing is provided, the latest one will be used.")
+
+args = parser.parse_args()
+keep_parsing = args.continual_parsing
+start_block = args.start_block
+end_block = args.end_block
+if (start_block is None):
+  keep_parsing = True
+
+if (start_block is None and end_block is not None):
+  keep_parsing = True
+
 #Loads up the last block state it was on
 def get_last_block_state():
   try:
@@ -207,8 +227,8 @@ if __name__ == "__main__":
 
   print("Parsing from block: " + str(blocks_stored_count) + " to " + str(full_chain_length))
 
-  #Loops through bitcoin_blockchain extracting block & transaction info
-  while (full_chain_length - blocks_stored_count > 0):
+  if (continual == False and blocks_to_parse > 1):
+    blocks_to_parse = 1
 
 
 
@@ -248,18 +268,12 @@ if __name__ == "__main__":
     #for block in blocks:
     #  parse_block_to_postgresql_database(block)
 
-    #manager = Manager()
+    print("Blocks to check length: " + str(blocks_per_cycle))
 
-    POOL = mp.Pool(POOL_SIZE)
-    #POOL = ThreadPool(POOL_SIZE)
-    #for block_index in range(len(blocks_to_check)):
-    #  POOL.join(parse_block_to_postgresql_database, blocks[block_index], blocks_to_check[block_index])
-    POOL.map(parse_block_to_postgresql_database, (blocks, blocks_to_check))
-    POOL.close()
-    #POOL.join()
-    #for result in parse_results:
-    #  print("RESULT: " + result[0][0])
-    #  commit_latest_block(result[0][0])
+    for index in range(blocks_stored_count, blocks_stored_count + (blocks_per_cycle - len(blocks_to_check))):
+
+      blocks_to_check.append(index)
+      commit_failed_block(index)
 
 
     #nums = [0,1,2,3,4,5,6,7,8,9,10]

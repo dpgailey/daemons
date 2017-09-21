@@ -10,12 +10,15 @@ from pebble import ProcessPool
 from concurrent.futures import TimeoutError
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
+#Authentication required to download blockchain
 rpc_user = "jamie"
 rpc_password = "gabpam24"
 rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:8332"%(rpc_user, rpc_password))
 
+#How many blocks we want to parse at once
 max_blocks_per_cycle = 1000
 
+#Maximum amount of threads to use based on CPU
 max_pool_size = mp.cpu_count() + 2
 
 #Provides a description for the argument system
@@ -37,9 +40,8 @@ parser.add_argument("-s", "--start", dest='start_block', type=int,
 parser.add_argument("-e", "--end", dest="end_block", type=int,
                     help="What block to finish indexing. If nothing is provided, the latest one will be used.")
 
-args = parser.parse_args()
-
 #Sets variables based on arguments provided
+args = parser.parse_args()
 show_errors = args.show_errors
 parse_multiple_blocks = args.continual_parsing
 start_block = args.start_block
@@ -97,20 +99,24 @@ def get_string_formatter(length):
 #Saves block & stores information about the last block into bitcoin_parser_states table
 def insert_block_state(hash, index):
 
-  try:
-    delete_failed_block_sql = "DELETE FROM bitcoin_failed_blocks WHERE blockNum = %s"
-    cur.execute(delete_failed_block_sql, (index,))
-  except:
-    raise
+  #Deletes failed blocks from bitcoin_failed_blocks
+  if (parse_multiple_blocks):
+    try:
+      delete_failed_block_sql = "DELETE FROM bitcoin_failed_blocks WHERE blockNum = %s"
+      cur.execute(delete_failed_block_sql, (index,))
+    except:
+      raise
 
+  #Deletes bitcoin_parser_states table
   clear_bitcoin_parser_states_sql = "DELETE FROM bitcoin_parser_states"
   cur.execute(clear_bitcoin_parser_states_sql)
 
+  #Inserts parser state into bitcoin_parser_states
   set_last_block_sql = "INSERT INTO bitcoin_parser_states (id, totalBlocks) VALUES (%s, %s)"
   data = (1, block_current)
-
   cur.execute(set_last_block_sql, data)
-  conn.commit()
+
+
 
 #Inserts failed block data into bitcoin_failed_blocks table
 def commit_failed_block(index):
@@ -143,7 +149,8 @@ def current_blockchain_length():
       block_count = rpc_connection.batch_([["getblockcount"]])[0]
       break
     except Exception as e:
-      print("Error getting length: " + str(e))
+      if (show_errors):
+        print("Error getting length: " + str(e))
       tryCount -= 1
       if (tryCount <= 0):
         sys.exit(1)
@@ -155,10 +162,13 @@ def parse_block_to_postgresql_database(block_index):
 
   try:
 
+    #Retrieves block from blockchain based on index
     commands = [ [ "getblockhash", block_index] ]
     block_hashes = rpc_connection.batch_(commands)
     blocks = rpc_connection.batch_([ [ "getblock", block_hashes[0] ]])
     block = blocks[0]
+
+    print("Adding block: " + str(block_index))
 
     block_info = list()
 
@@ -195,7 +205,7 @@ def parse_block_to_postgresql_database(block_index):
     block_info.append(block["strippedsize"])
     block_info.append(block["strippedsize"])
 
-    print("Adding block: " + str(block_index))
+
 
     if (block_index >= 1):
       #Loops through transactions, compiles data for storage
@@ -235,7 +245,7 @@ def parse_block_to_postgresql_database(block_index):
 
           trans_info.append(trans_vin["sequence"])
 
-          #trans_info_list.append(trans_info)
+          #Insert transaction info into database
           insert_transaction(trans_info)
 
     #Commits changes
@@ -310,10 +320,9 @@ if __name__ == "__main__":
     for index in range(block_current, block_current + (blocks_per_cycle - len(blocks_to_check))):
       blocks_to_check.append(index)
 
+      #Adds blocks to database for reference incase the program is stopped early
       if parse_multiple_blocks:
         commit_failed_block(index)
-
-    print("Blocks to check length: " + str(len(blocks_to_check)))
 
     #Loops through the blocks requested for the cycle
     while (len(blocks_to_check) > max_pool_size or (blocks_per_cycle <= max_pool_size and len(blocks_to_check) > 0)):
@@ -336,7 +345,9 @@ if __name__ == "__main__":
           future.cancel()
 
 
-    print("Got through blocks")
+    #Commits changes to Database
+    print("Got through parsing cycle")
+    conn.commit()
 
     #Ends cycling if only 1 block was paresed
     if (blocks_per_cycle <= 1):

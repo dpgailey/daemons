@@ -16,7 +16,7 @@ rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:8332"%(rpc_user, rpc_p
 
 max_blocks_per_cycle = 1000
 
-pool_size = mp.cpu_count() + 2
+max_pool_size = mp.cpu_count() + 2
 
 #Provides a description for the argument system
 parser = argparse.ArgumentParser(description='Set up parser to read through blocks on the blockchain')
@@ -247,7 +247,6 @@ def parse_block_to_postgresql_database(block_index):
   except Exception as e:
     if (show_errors):
       print("Error parsing block "+str(block_index)+" : " + str(e))
-    return -1
 
 #Returns how many blocks it's meant to parse
 def blocks_to_parse_in_cycle(continual, desired_start, desired_end, block_at, block_chain_length, desired_blocks_per_cycle):
@@ -272,7 +271,6 @@ def blocks_to_parse_in_cycle(continual, desired_start, desired_end, block_at, bl
   if (continual == False and blocks_to_parse > 1):
     blocks_to_parse = 1
 
-  print ("Block at: " + str(block_at) + " Blocks to parse: " + str(blocks_to_parse))
   return blocks_to_parse
 
 #Connects to the database
@@ -280,20 +278,20 @@ conn = psycopg2.connect("dbname=bitcoin_blockchain user=jamie")
 cur = conn.cursor()
 
 #Initiates block state
-block_current = get_last_block_state()
-if (start_block is None):
-  blocks_to_check = get_failed_blocks()
-else:
+if (start_block is not None):
+  block_current = start_block
   blocks_to_check = list()
+else:
+  block_current = get_last_block_state()
+  blocks_to_check = get_failed_blocks()
+
 
 #Sets current block based on the current error blocks
 for error_block_num in blocks_to_check:
   if (error_block_num > block_current):
     block_current = error_block_num
 
-#Sets current block based on input provided
-if (start_block != None):
-  block_current = start_block
+
 
 #Main method
 if __name__ == "__main__":
@@ -306,6 +304,7 @@ if __name__ == "__main__":
 
     #Sets the amount of blocks to parse per cycle
     blocks_per_cycle = blocks_to_parse_in_cycle(parse_multiple_blocks, start_block, end_block, block_current, full_chain_length, max_blocks_per_cycle)
+    print ("Block at: " + str(block_current) + " Blocks to parse: " + str(blocks_per_cycle))
 
     #Adds on the the required block indexes
     for index in range(block_current, block_current + (blocks_per_cycle - len(blocks_to_check))):
@@ -317,7 +316,11 @@ if __name__ == "__main__":
     print("Blocks to check length: " + str(len(blocks_to_check)))
 
     #Loops through the blocks requested for the cycle
-    while (len(blocks_to_check) > pool_size or (blocks_per_cycle < pool_size and len(blocks_to_check) > 0)):
+    while (len(blocks_to_check) > max_pool_size or (blocks_per_cycle <= max_pool_size and len(blocks_to_check) > 0)):
+
+      if (len(blocks_to_check) < max_blocks_per_cycle):
+        pool_size = 1
+
       with ProcessPool(pool_size) as pool:
         #Adds blocks to multithreading process pool
         future = pool.map(parse_block_to_postgresql_database, blocks_to_check, timeout=1)
@@ -328,7 +331,8 @@ if __name__ == "__main__":
                 print("Blocks stored " + str(block_current) + " update at " + str(datetime.datetime.now()))
                 block_current += 1
         except TimeoutError:
-          print("TimeoutError: aborting remaining computations")
+          if (show_errors):
+            print("TimeoutError: aborting remaining computations")
           future.cancel()
 
 

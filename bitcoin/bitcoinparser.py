@@ -41,6 +41,8 @@ parser.add_argument("-s", "--start", dest='start_block', type=int,
 parser.add_argument("-e", "--end", dest="end_block", type=int,
                     help="What block to finish indexing. If nothing is provided, the latest one will be used.")
 
+
+
 #Sets variables based on arguments provided
 args = parser.parse_args()
 show_errors = args.show_errors
@@ -49,9 +51,15 @@ start_block = args.start_block
 end_block = args.end_block
 
 #Makes sure it's set to parse multiple blocks when there's no other option
+if (start_block is None and end_block is not None):
+  print("can not have end block '-e' without start block '-s' assigned")
+  sys.exit(1)
 if (start_block is None):
   parse_multiple_blocks = True
 if (start_block is not None and end_block is not None):
+  if (end_block < start_block):
+    print("end_block '-e' can not be less than start_block '-s'")
+    sys.exit(1)
   parse_multiple_blocks = True
 
 #Loads up the last block state it was on

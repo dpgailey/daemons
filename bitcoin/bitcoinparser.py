@@ -5,6 +5,7 @@ import requests, json
 import multiprocessing as mp
 import argparse
 import time
+import random
 
 from pebble import ProcessPool
 from concurrent.futures import TimeoutError
@@ -162,13 +163,14 @@ def parse_block_to_postgresql_database(block_index):
 
   try:
 
+    block_index = int(block_index)
     #Retrieves block from blockchain based on index
     commands = [ [ "getblockhash", block_index] ]
     block_hashes = rpc_connection.batch_(commands)
     blocks = rpc_connection.batch_([ [ "getblock", block_hashes[0] ]])
     block = blocks[0]
 
-    print("Adding block: " + str(block_index))
+    #print("Adding block: " + str(block))
 
     block_info = list()
 
@@ -329,8 +331,10 @@ if __name__ == "__main__":
 
       if (len(blocks_to_check) < max_blocks_per_cycle):
         pool_size = 1
+      else:
+        pool_size = max_pool_size
 
-      with ProcessPool(pool_size) as pool:
+      with ProcessPool() as pool:
         #Adds blocks to multithreading process pool
         future = pool.map(parse_block_to_postgresql_database, blocks_to_check, timeout=1)
         try:

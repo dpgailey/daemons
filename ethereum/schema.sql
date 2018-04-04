@@ -140,4 +140,6 @@ CREATE INDEX eth_tx_and_blk_hash ON ethereum_transactions (txhash, blockhash);
 CREATE INDEX eth_tx_blk_hash ON ethereum_transactions (blockhash);
 CREATE INDEX eth_blk_hash ON ethereum_blocks (blockhash);
 CREATE INDEX eth_blk_number_int ON ethereum_blocks (number_int);
+CREATE INDEX eth_tx_to ON ethereum_transactions ("to");
+CREATE INDEX eth_tx_from ON ethereum_transactions ("from");
 
